@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IKIGAI Building — Tầng 7</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #dfe6ec; font-family: system-ui, sans-serif; }
+  canvas { display: block; cursor: grab; }
+  canvas.looking { cursor: grabbing; }
+  #hud { position: fixed; top: 16px; left: 16px; max-width: 300px; background: #fffd; padding: 10px 14px; border-radius: 10px; color: #1c2a33; }
+  #hud h1 { margin: 0 0 4px; font-size: 18px; }
+  #hud p { margin: 0 0 4px; font-size: 13px; line-height: 1.45; }
+  #hud kbd { background: #1c2a33; color: #fff; border-radius: 4px; padding: 0 5px; font: 12px ui-monospace, monospace; }
+  #views { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  #views button { border: 1px solid #1c2a3344; background: #fff; color: #1c2a33; border-radius: 6px; padding: 4px 9px; font-size: 13px; cursor: pointer; }
+  #views button:hover { background: #1c2a33; color: #fff; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="hud">
+  <h1>IKIGAI Building — Tầng 7</h1>
+  <p id="status" role="status">Đang tải mô hình…</p>
+  <p>Giữ chuột kéo để nhìn · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> di chuyển · <kbd>E</kbd>/<kbd>Q</kbd> lên/xuống · <kbd>Shift</kbd> chạy nhanh · cuộn chuột đổi tốc độ</p>
+  <div id="views"></div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const status = document.getElementById('status');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;       // bóng mép mềm
+renderer.toneMapping = THREE.ACESFilmicToneMapping;     // dải sáng kiểu ảnh chụp, vùng nắng không cháy trắng
+renderer.toneMappingExposure = 0.95;
+document.body.appendChild(renderer.domElement);
+const canvas = renderer.domElement;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xdde5ea);
+scene.fog = new THREE.Fog(0xdde5ea, 120, 900);          // sương xa: nhà càng xa càng nhạt dần vào chân trời
+// vòm trời: xám sáng ở chân trời, xanh nhạt dần lên đỉnh (trời Sài Gòn nhiều mây như trong ảnh)
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(1400, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  vertexShader: 'varying float h; void main(){ h = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: 'varying float h; void main(){ gl_FragColor = vec4(mix(vec3(0.87, 0.9, 0.92), vec3(0.5, 0.66, 0.86), smoothstep(0.0, 0.6, h)), 1.0); }',
+})));
+const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 3000);
+camera.rotation.order = 'YXZ';   // yaw quanh trục đứng trước, rồi pitch
+
+// môi trường phản chiếu (kính, inox, crôm, mặt đá bóng) + ánh sáng nền dịu từ mọi phía
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.55;
+scene.add(new THREE.HemisphereLight(0xf2f6ff, 0x9a8468, 0.6));   // trời đục phía trên, sàn gỗ hắt lên phía dưới
+// nắng chiếu xiên từ phía dãy cửa sổ bắc (Blender +y = three −z) nên hắt vệt sáng qua kính vào phòng họp và pantry
+const sun = new THREE.DirectionalLight(0xfff0d8, 2.4);
+sun.target.position.set(9, 0, -8);
+sun.position.set(9 + 5, 14, -8 - 14);
+sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.normalBias = 0.05;   // chống sọc nhiễu bóng (shadow acne) trên sàn và tường
+Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, far: 60 });
+scene.add(sun, sun.target);
+
+new GLTFLoader().load('assets/floor7.glb', (gltf) => {
+  gltf.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const ceiling = /^(Ceil|City)/.test(o.name);   // trần không đổ/nhận bóng (nếu không cả tầng tối om); thành phố nằm ngoài vùng bóng
+    o.receiveShadow = !ceiling;
+    o.castShadow = !ceiling && !o.material.transparent && !/slat/.test(o.name);   // kính và lá rèm không đổ bóng (bóng rèm gây sọc nhiễu)
+    if (o.material.map) o.material.map.anisotropy = renderer.capabilities.getMaxAnisotropy();   // vân sàn nét khi nhìn xiên
+  });
+  scene.add(gltf.scene);
+  status.textContent = 'Camera tự do — bay xuyên tường được';
+}, undefined, (e) => { status.textContent = 'Không tải được mô hình: ' + e.message; });
+
+// ---------- camera tự do ----------
+// Toạ độ góc nhìn ghi theo Blender (x, y, cao) cho dễ đối chiếu với build_floor7.py; three: (x, cao, -y)
+const bl = (x, y, z) => new THREE.Vector3(x, z, -y);
+let yaw = 0, pitch = 0, speed = 4;   // m/s
+function lookFrom(pos, target) {
+  camera.position.copy(pos);
+  const d = target.clone().sub(pos).normalize();
+  yaw = Math.atan2(-d.x, -d.z);
+  pitch = Math.asin(d.y);
+}
+const VIEWS = {
+  'Toàn cảnh': [bl(9.5, -5, 20), bl(9.5, 8, 0)],
+  'Sảnh ghế xanh': [bl(8.6, 8.6, 1.5), bl(5.3, 11.3, 0.5)],
+  'Phòng họp': [bl(8.2, 12.8, 1.6), bl(4, 15, 0.9)],
+  'Pantry': [bl(9.6, 11.6, 1.6), bl(11.6, 15.5, 0.9)],
+  'Bếp': [bl(11.6, 12.6, 1.6), bl(15, 13.8, 1)],
+  'Khu làm việc': [bl(4.8, 0.8, 1.7), bl(12, 6, 1)],
+};
+for (const [name, [pos, target]] of Object.entries(VIEWS)) {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => { lookFrom(pos, target); b.blur(); };
+  document.getElementById('views').appendChild(b);
+}
+lookFrom(...VIEWS['Sảnh ghế xanh']);
+
+let dragging = false;
+canvas.addEventListener('pointerdown', (e) => { dragging = true; canvas.setPointerCapture(e.pointerId); canvas.classList.add('looking'); });
+canvas.addEventListener('pointerup', () => { dragging = false; canvas.classList.remove('looking'); });
+canvas.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  yaw -= e.movementX * 0.003;
+  pitch = Math.max(-1.5, Math.min(1.5, pitch - e.movementY * 0.003));
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  speed = Math.max(0.5, Math.min(30, speed * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+  status.textContent = `Tốc độ ${speed.toFixed(1)} m/s`;
+}, { passive: false });
+
+const keys = new Set();
+addEventListener('keydown', (e) => { keys.add(e.code); if (e.code === 'Space') e.preventDefault(); });
+addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+
+const fwd = new THREE.Vector3(), right = new THREE.Vector3(), move = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+const clock = new THREE.Clock();
+function step() {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  camera.rotation.set(pitch, yaw, 0);
+  camera.getWorldDirection(fwd);
+  right.crossVectors(fwd, UP).normalize();
+  const k = (...codes) => codes.some((c) => keys.has(c));
+  move.set(0, 0, 0)
+    .addScaledVector(fwd, k('KeyW', 'ArrowUp') - k('KeyS', 'ArrowDown'))
+    .addScaledVector(right, k('KeyD', 'ArrowRight') - k('KeyA', 'ArrowLeft'))
+    .addScaledVector(UP, k('KeyE', 'Space') - k('KeyQ'));
+  if (move.lengthSq()) camera.position.addScaledVector(move.normalize(), speed * dt * (k('ShiftLeft', 'ShiftRight') ? 3 : 1));
+}
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+renderer.setAnimationLoop(() => { step(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>
