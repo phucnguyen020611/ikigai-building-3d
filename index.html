@@ -15,6 +15,9 @@
   #views { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   #views button { border: 1px solid #1c2a3344; background: #fff; color: #1c2a33; border-radius: 6px; padding: 4px 9px; font-size: 13px; cursor: pointer; }
   #views button:hover { background: #1c2a33; color: #fff; }
+  #views #mode { background: #c8e04a; border-color: #9db52f; font-weight: 600; }
+  #views #mode:hover { background: #1c2a33; color: #fff; }
+  #views #mode:disabled { opacity: 0.5; cursor: default; }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
@@ -25,8 +28,8 @@
 <div id="hud">
   <h1>IKIGAI Building — Tầng 7</h1>
   <p id="status" role="status">Đang tải mô hình…</p>
-  <p>Giữ chuột kéo để nhìn · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> di chuyển · <kbd>E</kbd>/<kbd>Q</kbd> lên/xuống · <kbd>Shift</kbd> chạy nhanh · cuộn chuột đổi tốc độ</p>
-  <div id="views"></div>
+  <p id="hint"></p>
+  <div id="views"><button id="mode" disabled></button></div>
 </div>
 <script type="module">
 import * as THREE from 'three';
@@ -78,13 +81,16 @@ new GLTFLoader().load('assets/floor7.glb', (gltf) => {
     if (o.material.map) o.material.map.anisotropy = renderer.capabilities.getMaxAnisotropy();   // vân sàn nét khi nhìn xiên
   });
   scene.add(gltf.scene);
-  status.textContent = 'Camera tự do — bay xuyên tường được';
+  buildCollision(gltf.scene);
+  modeBtn.disabled = false;
+  setMode('free');
 }, undefined, (e) => { status.textContent = 'Không tải được mô hình: ' + e.message; });
 
-// ---------- camera tự do ----------
+// ---------- góc nhìn + điều khiển chung ----------
 // Toạ độ góc nhìn ghi theo Blender (x, y, cao) cho dễ đối chiếu với build_floor7.py; three: (x, cao, -y)
 const bl = (x, y, z) => new THREE.Vector3(x, z, -y);
-let yaw = 0, pitch = 0, speed = 4;   // m/s
+let yaw = 0, pitch = 0, speed = 4;   // hướng nhìn dùng chung cho cả hai chế độ; speed (m/s) của camera tự do
+let mode = 'free';                   // 'free' = camera bay tự do, 'walk' = nhập vai nhân vật đi bộ
 function lookFrom(pos, target) {
   camera.position.copy(pos);
   const d = target.clone().sub(pos).normalize();
@@ -102,7 +108,14 @@ const VIEWS = {
 for (const [name, [pos, target]] of Object.entries(VIEWS)) {
   const b = document.createElement('button');
   b.textContent = name;
-  b.onclick = () => { lookFrom(pos, target); b.blur(); };
+  b.onclick = () => {
+    b.blur();
+    if (mode === 'walk' && name !== 'Toàn cảnh') {   // đang nhập vai: đưa nhân vật tới khu đó, quay mặt theo góc nhìn
+      lookFrom(pos, target);
+      [player.x, player.z] = freeSpot(pos.x, pos.z);
+      player.heading = yaw; pitch = -0.2;
+    } else { setMode('free'); lookFrom(pos, target); }
+  };
   document.getElementById('views').appendChild(b);
 }
 lookFrom(...VIEWS['Sảnh ghế xanh']);
@@ -117,28 +130,156 @@ canvas.addEventListener('pointermove', (e) => {
 });
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  speed = Math.max(0.5, Math.min(30, speed * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
-  status.textContent = `Tốc độ ${speed.toFixed(1)} m/s`;
+  const up = e.deltaY < 0;
+  if (mode === 'walk') {             // cuộn = kéo camera lại gần / ra xa nhân vật; sát hẳn là góc nhìn thứ nhất
+    camDist = up ? (camDist < 0.9 ? 0 : camDist / 1.2) : Math.min(7, Math.max(0.9, camDist * 1.2));
+  } else {
+    speed = Math.max(0.5, Math.min(30, speed * (up ? 1.2 : 1 / 1.2)));
+    status.textContent = `Camera tự do · tốc độ ${speed.toFixed(1)} m/s`;
+  }
 }, { passive: false });
 
 const keys = new Set();
-addEventListener('keydown', (e) => { keys.add(e.code); if (e.code === 'Space') e.preventDefault(); });
+addEventListener('keydown', (e) => {
+  keys.add(e.code);
+  if (e.code === 'Space') e.preventDefault();
+  if (e.code === 'KeyC' && !e.repeat && !modeBtn.disabled) setMode(mode === 'walk' ? 'free' : 'walk');
+});
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
+const k = (...codes) => codes.some((c) => keys.has(c));
+
+// ---------- va chạm: lưới chiếm chỗ 0.1 m dựng từ hộp bao của các vật trong mô hình ----------
+const G = { x0: -5, z0: -17.5, w: 215, h: 190, cell: 0.1 };
+const solid = new Uint8Array(G.w * G.h);   // mọi thứ chắn ngang tầm người (tường, kính, bàn ghế, tủ…)
+const tall = new Uint8Array(G.w * G.h);    // riêng vật cao tới trần (tường, vách kính, cột) — dùng để camera không chui qua tường
+const PASS = /^(Entryleaf|ExitdoorA|ExitdoorB|City|Ceil)/;   // cửa chính + 2 cửa cuối hành lang đang đóng nhưng nhân vật đi xuyên qua được
+function buildCollision(root) {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  root.traverse((o) => {
+    if (!o.isMesh || PASS.test(o.name)) return;
+    box.setFromObject(o);
+    const stairs = /^Stairs/.test(o.name);   // bậc thang (kể cả vế đi xuống nằm dưới sàn) luôn chắn: nhân vật chỉ đi trên mặt sàn tầng 7
+    if (!stairs && (box.max.y < 0.25 || box.min.y > 1.5)) return;
+    const isTall = box.max.y > 2.0 && box.min.y < 1.0;
+    const ix0 = Math.max(0, Math.floor((box.min.x - G.x0) / G.cell)), ix1 = Math.min(G.w - 1, Math.floor((box.max.x - G.x0) / G.cell));
+    const iz0 = Math.max(0, Math.floor((box.min.z - G.z0) / G.cell)), iz1 = Math.min(G.h - 1, Math.floor((box.max.z - G.z0) / G.cell));
+    for (let iz = iz0; iz <= iz1; iz++) for (let ix = ix0; ix <= ix1; ix++) { solid[iz * G.w + ix] = 1; if (isTall) tall[iz * G.w + ix] = 1; }
+  });
+}
+function cellAt(grid, x, z) {
+  const ix = Math.floor((x - G.x0) / G.cell), iz = Math.floor((z - G.z0) / G.cell);
+  return ix < 0 || iz < 0 || ix >= G.w || iz >= G.h ? 1 : grid[iz * G.w + ix];
+}
+const RADIUS = 0.22;
+function blocked(x, z) {
+  if (cellAt(solid, x, z)) return true;
+  for (let a = 0; a < 8; a++) if (cellAt(solid, x + Math.cos(a * Math.PI / 4) * RADIUS, z + Math.sin(a * Math.PI / 4) * RADIUS)) return true;
+  return false;
+}
+function freeSpot(x, z) {   // chỗ trống gần (x, z) nhất, dò theo vòng tròn nở dần
+  for (let r = 0; r < 4; r += 0.2) for (let a = 0; a < 16; a++) {
+    const px = x + Math.cos(a * Math.PI / 8) * r, pz = z + Math.sin(a * Math.PI / 8) * r;
+    if (!blocked(px, pz)) return [px, pz];
+  }
+  return [x, z];
+}
+
+// ---------- nhân vật ----------
+const player = { x: 6.8, z: -7.6, heading: 0, phase: 0 };
+let camDist = 3.2;
+const avatar = new THREE.Group();
+{
+  const m = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75 });
+  const shirt = m(0xc8e04a), skin = m(0xe6b48c), pants = m(0x1c2a33), dark = m(0x15171a);
+  const add = (parent, geo, mat, x, y, z) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  add(avatar, new THREE.CapsuleGeometry(0.17, 0.4, 6, 16), shirt, 0, 1.12, 0);                                   // thân áo xanh lime IKIGAI
+  add(avatar, new THREE.SphereGeometry(0.125, 20, 14), skin, 0, 1.6, 0);                                          // đầu
+  add(avatar, new THREE.SphereGeometry(0.133, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.52), dark, 0, 1.612, 0.012); // tóc
+  for (const sx of [-1, 1]) add(avatar, new THREE.SphereGeometry(0.018, 8, 6), dark, sx * 0.045, 1.615, -0.115);  // mắt (mặt quay về −z)
+  avatar.userData.limbs = [];
+  for (const sx of [-1, 1]) {
+    const leg = new THREE.Group(); leg.position.set(sx * 0.09, 0.84, 0); avatar.add(leg);
+    add(leg, new THREE.CapsuleGeometry(0.065, 0.66, 4, 10), pants, 0, -0.4, 0);
+    add(leg, new THREE.BoxGeometry(0.11, 0.07, 0.26), dark, 0, -0.8, -0.04);                                       // giày
+    const arm = new THREE.Group(); arm.position.set(sx * 0.235, 1.33, 0); avatar.add(arm);
+    add(arm, new THREE.CapsuleGeometry(0.048, 0.44, 4, 10), shirt, 0, -0.27, 0);
+    add(arm, new THREE.SphereGeometry(0.055, 10, 8), skin, 0, -0.56, 0);                                           // bàn tay
+    avatar.userData.limbs.push([leg, sx], [arm, -sx]);                                                             // tay vung ngược pha với chân cùng bên
+  }
+}
+avatar.visible = false;
+scene.add(avatar);
+
+const modeBtn = document.getElementById('mode'), hint = document.getElementById('hint');
+modeBtn.onclick = () => { modeBtn.blur(); setMode(mode === 'walk' ? 'free' : 'walk'); };
+function setMode(next) {
+  if (next === 'walk' && mode !== 'walk') {   // vào vai ngay tại chỗ camera đang đứng nếu ở trong tầng, không thì ở sảnh
+    const inside = camera.position.y < 3.4 && !cellAt(solid, camera.position.x, camera.position.z);
+    [player.x, player.z] = inside ? freeSpot(camera.position.x, camera.position.z) : freeSpot(6.8, -7.6);
+    player.heading = yaw; pitch = -0.2;
+  }
+  mode = next;
+  avatar.visible = mode === 'walk';
+  modeBtn.textContent = mode === 'walk' ? 'Bay tự do (C)' : 'Nhập vai (C)';
+  status.textContent = mode === 'walk' ? 'Nhập vai — đi bộ trong văn phòng, có va chạm' : 'Camera tự do — bay xuyên tường được';
+  hint.innerHTML = mode === 'walk'
+    ? 'Giữ chuột kéo để xoay camera · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> đi · <kbd>Shift</kbd> chạy · cuộn chuột kéo gần/xa (sát hẳn = góc nhìn thứ nhất) · cửa đóng đi xuyên qua được'
+    : 'Giữ chuột kéo để nhìn · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> di chuyển · <kbd>E</kbd>/<kbd>Q</kbd> lên/xuống · <kbd>Shift</kbd> chạy nhanh · cuộn chuột đổi tốc độ';
+}
+setMode('free');
 
 const fwd = new THREE.Vector3(), right = new THREE.Vector3(), move = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
 const clock = new THREE.Clock();
-function step() {
-  const dt = Math.min(clock.getDelta(), 0.1);
+function stepFree(dt) {
   camera.rotation.set(pitch, yaw, 0);
   camera.getWorldDirection(fwd);
   right.crossVectors(fwd, UP).normalize();
-  const k = (...codes) => codes.some((c) => keys.has(c));
   move.set(0, 0, 0)
     .addScaledVector(fwd, k('KeyW', 'ArrowUp') - k('KeyS', 'ArrowDown'))
     .addScaledVector(right, k('KeyD', 'ArrowRight') - k('KeyA', 'ArrowLeft'))
     .addScaledVector(UP, k('KeyE', 'Space') - k('KeyQ'));
   if (move.lengthSq()) camera.position.addScaledVector(move.normalize(), speed * dt * (k('ShiftLeft', 'ShiftRight') ? 3 : 1));
+}
+function stepWalk(dt) {
+  pitch = Math.max(-1.3, Math.min(0.5, pitch));
+  // đi theo hướng camera đang nhìn (chiếu xuống mặt sàn); thử từng trục để trượt dọc tường thay vì đứng khựng
+  fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw)); right.set(Math.cos(yaw), 0, -Math.sin(yaw));
+  move.set(0, 0, 0)
+    .addScaledVector(fwd, k('KeyW', 'ArrowUp') - k('KeyS', 'ArrowDown'))
+    .addScaledVector(right, k('KeyD', 'ArrowRight') - k('KeyA', 'ArrowLeft'));
+  const moving = move.lengthSq() > 0, run = k('ShiftLeft', 'ShiftRight');
+  if (moving) {
+    move.normalize().multiplyScalar((run ? 3.6 : 1.7) * dt);
+    if (!blocked(player.x + move.x, player.z)) player.x += move.x;
+    if (!blocked(player.x, player.z + move.z)) player.z += move.z;
+    let turn = Math.atan2(-move.x, -move.z) - player.heading;          // quay người dần về hướng đi
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    player.heading += turn * Math.min(1, dt * 12);
+    player.phase += dt * (run ? 13 : 8);
+  } else player.phase = 0;
+  const firstPerson = camDist < 0.5;
+  if (firstPerson) player.heading = yaw;
+  avatar.position.set(player.x, 0, player.z);
+  avatar.rotation.y = player.heading;
+  avatar.visible = !firstPerson;
+  const swing = moving ? Math.sin(player.phase) * (run ? 0.9 : 0.55) : 0;
+  for (const [limb, s] of avatar.userData.limbs) limb.rotation.x = swing * s;
+  // camera bám sau lưng: lùi từ đầu nhân vật theo hướng nhìn, dừng lại trước tường/vách kính
+  const ey = firstPerson ? 1.6 : 1.5, cp = Math.cos(pitch), sp = Math.sin(pitch);
+  let d = 0;
+  for (; d < camDist; d += 0.1) {
+    const y = ey + sp * (d + 0.1);
+    if (y < 0.15 || (y < 3.3 && cellAt(tall, player.x + Math.sin(yaw) * cp * (d + 0.25), player.z + Math.cos(yaw) * cp * (d + 0.25)))) break;
+  }
+  d = Math.min(d, camDist);
+  camera.position.set(player.x + Math.sin(yaw) * cp * d, ey - sp * d, player.z + Math.cos(yaw) * cp * d);
+  camera.rotation.set(pitch, yaw, 0);
+}
+function step() {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  (mode === 'walk' ? stepWalk : stepFree)(dt);
 }
 
 function resize() {
