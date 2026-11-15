@@ -349,24 +349,25 @@ def wall(name, x1, y1, x2, y2, kind="wall", inside=(0, 0), bays=None, punched=Fa
         part(f"{name}.post{i}", "tbox" if punched else "box", (x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, H / 2), (pw if lx > 0.1 else 0.1, pw if ly > 0.1 else 0.1, H), "wall" if punched else frame, floor_root)
 
 # bàn làm việc 4 chỗ (dài theo x cục bộ): mặt gỗ sồi trên khung thép đen, máng đi dây giữa gầm, 2 nắp ổ điện trên mặt;
-# mỗi chỗ 2 màn hình trên tay đỡ kẹp bàn (kiểu A: 2 màn ngang chụm vào nhau; kiểu B: 1 màn cong siêu rộng + 1 màn dọc), bàn phím + chuột
+# mỗi chỗ 2 màn hình, mỗi màn một chân đế riêng (kiểu A: 2 màn ngang chụm vào nhau; kiểu B: 1 màn cong siêu rộng + 1 màn dọc), bàn phím + chuột
 TL, TD = 2.36, 1.2
-def _monitor(x, sd, w, h, ang, z=1.12):
-    """Một màn hình tim x (cục bộ), quay mặt về phía người ngồi (sd=±1 là cạnh bàn có người ngồi), xoay ang độ quanh trục đứng."""
+def _monitor(x, sd, w, h, ang, z=1.0):
+    """Một màn hình có chân đế riêng, tim x (cục bộ), quay mặt về phía người ngồi (sd=±1 là cạnh bàn có người ngồi), xoay ang độ quanh trục đứng."""
     r = math.radians(ang); nx, ny = -sd * math.sin(r), sd * math.cos(r)   # pháp tuyến mặt màn
     y = sd * 0.2
-    return [("box", (x, y, z), (w, 0.025, h), "black", ang),
+    return [("box", (x - nx * 0.07, y - ny * 0.07, 0.756), (0.22, 0.17, 0.012), "black", ang),                 # đế
+            ("box", (x - nx * 0.03, y - ny * 0.03, (0.76 + z) / 2), (0.045, 0.03, z - 0.76), "black", ang),    # cổ chân
+            ("box", (x, y, z), (w, 0.025, h), "black", ang),
             ("box", (x + nx * 0.014, y + ny * 0.014, z), (w - 0.03, 0.004, h - 0.03), "scr", ang),
             ("box", (x + nx * 0.017 - sd * math.cos(r) * w * 0.14, y + ny * 0.017 - sd * math.sin(r) * w * 0.14, z + h * 0.05), (w * 0.55, 0.003, h * 0.7), "scr_hi", ang),
             ("box", (x + nx * 0.017 + sd * math.cos(r) * w * 0.3, y + ny * 0.017 + sd * math.sin(r) * w * 0.3, z - h * 0.2), (w * 0.2, 0.003, h * 0.25), "scr_acc", ang)]
 def _seat(x0, sd, kind):
-    parts = [("box", (x0, sd * 0.1, 0.76), (0.1, 0.08, 0.02), "black"), ("cyl", (x0, sd * 0.1, 0.96), (0.035, 0.035, 0.4), "black"),   # kẹp bàn + trụ tay đỡ
-             ("box", (x0, sd * 0.14, 1.12), (0.62, 0.03, 0.04), "black"),                                                         # thanh ngang tay đỡ
-             ("box", (x0 - 0.06, sd * 0.47, 0.76), (0.42, 0.14, 0.02), "dark"), ("rbox", (x0 + 0.28, sd * 0.47, 0.765), (0.065, 0.11, 0.03), "black")]   # bàn phím + chuột
+    # người ngồi ở cạnh sd nhìn về tâm bàn: tay phải của họ nằm về phía -sd theo trục x cục bộ
+    parts = [("box", (x0 + sd * 0.05, sd * 0.45, 0.76), (0.42, 0.14, 0.02), "dark"), ("rbox", (x0 - sd * 0.3, sd * 0.45, 0.765), (0.065, 0.11, 0.03), "black")]   # bàn phím + chuột
     if kind == "A":
         parts += _monitor(x0 - 0.285, sd, 0.55, 0.33, -sd * 9) + _monitor(x0 + 0.285, sd, 0.55, 0.33, sd * 9)
     else:
-        parts += _monitor(x0 - sd * 0.17, sd, 0.78, 0.34, -sd * 4) + _monitor(x0 + sd * 0.41, sd, 0.32, 0.54, sd * 14, z=1.15)
+        parts += _monitor(x0 - sd * 0.17, sd, 0.78, 0.34, -sd * 4) + _monitor(x0 + sd * 0.41, sd, 0.32, 0.54, sd * 14, z=1.06)
     return parts
 def work_table_parts(kinds):
     return [("rbox", (0, 0, 0.735), (TL, TD, 0.03), "oak")] + [("box", (sx * (TL / 2 - 0.06), sy * (TD / 2 - 0.06), 0.36), (0.06, 0.06, 0.72), "black") for sx in (-1, 1) for sy in (-1, 1)] + [
@@ -416,11 +417,11 @@ YL = YS + 1.7                          # mép bắc chiếu nghỉ tầng 7 tron
 box("Floor.stairs", (-2, (YS + YL) / 2, -0.05), (4, YL - YS, 0.1), "concrete")   # chiếu nghỉ ngang sàn, ngay sau cửa thoát hiểm
 
 # vỏ ngoài văn phòng: cửa sổ nam, đông (phần khu làm việc), bắc; tường đông pantry đặc (bếp + tranh)
-wall("Win.S", X0, 0, X1 - 0.9, 0, "window", (0, 1), punched=True)
-# góc đông-nam (theo video): cột vuông nhô vào phòng ngay tại góc, treo bảng trắng ở mặt tây; hai bên cột đều là ô cửa sổ
-wall("Win.E", X1, 0.9, X1, YM - 3.4, "window", (-1, 0), punched=True)
-part("Column.SE", "tbox", (X1 - 0.45, 0.45, HC / 2), (0.9, 0.9, HC), "wall", floor_root)
-box("Board.frame", (X1 - 0.91, 0.45, 1.5), (0.02, 0.84, 1.3), "grey"); box("Board.white", (X1 - 0.925, 0.45, 1.5), (0.012, 0.78, 1.24), "white")
+CSX = X1 - 2.1                          # tim cột trên tường nam (theo bản vẽ: giữa cột và góc đông-nam còn đúng 1 ô cửa sổ, tủ gỗ nằm trước ô đó)
+wall("Win.S", X0, 0, CSX - 0.6, 0, "window", (0, 1), punched=True); wall("Win.S2", CSX + 0.6, 0, X1, 0, "window", (0, 1), bays=1, punched=True)
+wall("Win.E", X1, 0, X1, YM - 3.4, "window", (-1, 0), punched=True)
+part("Column.S", "tbox", (CSX, 0.35, HC / 2), (1.2, 0.7, HC), "wall", floor_root)                       # cột nhô vào phòng từ tường nam
+box("Board.frame", (CSX, 0.71, 1.5), (0.94, 0.02, 1.3), "grey"); box("Board.white", (CSX, 0.725, 1.5), (0.88, 0.012, 1.24), "white")   # tranh/bảng treo mặt bắc cột, quay về dãy bàn
 wall("Exit.wall", X1, YM - 3.4, X1, YM)                                 # tường đặc: cửa EXIT + bảng ghim, kệ sách đứng phía trước
 box("Pin.frame", (X1 - 0.06, YM - 2.2, 1.7), (0.02, 1.0, 1.25), "wood"); box("Pin.board", (X1 - 0.075, YM - 2.2, 1.7), (0.012, 0.92, 1.17), "tile")   # bảng ghim hoạ tiết xanh giữa cửa EXIT và kệ sách
 box("Pin.note", (X1 - 0.083, YM - 2.35, 1.6), (0.006, 0.22, 0.3), "white"); box("Pin.flag", (X1 - 0.083, YM - 2.05, 1.95), (0.006, 0.24, 0.24), "navy"); place("D2.exit", EXIT_DOOR, X1 - 0.06, YM - 0.95, 90)
@@ -602,7 +603,7 @@ for i in range(4):
 
 # khu làm việc (x X0–X1, y 0–12) — theo bản vẽ layout của chủ nhà: 7 bàn 4 chỗ
 # shortcut: bản vẽ không ghi kích thước nên vị trí lấy theo tỉ lệ hình, bàn giả định 2.36 × 1.2 m
-for i in range(3): work_table(f"Desk.S{i}", X1 - 0.75 - TL * (i + 0.5), 1.9)            # hàng nam: 3 bàn nối liền
+for i in range(3): work_table(f"Desk.S{i}", X1 - 0.75 - TL * (i + 0.5), 2.2)            # hàng nam: 3 bàn nối liền
 for i in range(2): work_table(f"Desk.M{i}", X1 - 2.05 - TL * (i + 0.5), 5.2)            # hàng giữa: 2 bàn nối liền, đầu đông có tủ gỗ
 work_table("Desk.N", X1 - 4.3, 8.3)
 box("Desk.pc", (X1 - 2.05 - TL * 1.5 - 0.95, 5.2, 1.0), (0.24, 0.48, 0.5), "white"); box("Desk.pc.glass", (X1 - 2.05 - TL * 1.5 - 0.95, 5.2 - 0.242, 1.0), (0.2, 0.004, 0.44), "scr_hi")   # thùng máy trắng mặt kính đặt trên bàn (thấy trong video)                                                      # hàng bắc: 1 bàn riêng, phía đông là kệ sách
@@ -611,9 +612,9 @@ place("Bookshelf", BOOKSHELF, X1 - 1.75, YM - 3.3, 90)                # cột xa
 part("Plant.pot", "cyl", (X1 - 0.4, YM - 5.0, 0.2), (0.3, 0.3, 0.4), "white", floor_root)
 for i, (dx, dy, z) in enumerate(((0, 0, 0.75), (0.12, 0.1, 1.0), (-0.1, 0.12, 1.2), (0.05, -0.12, 1.35))):
     part(f"Plant.leaf{i}", "rbox", (X1 - 0.4 + dx, YM - 5.0 + dy, z), (0.3, 0.3, 0.3), "c_green" if "c_green" in M else "green", floor_root)
-box("Cabinet.E", (X1 - 0.3, 2.35, 0.55), (0.45, 2.7, 1.1), "wood")     # tủ gỗ dài dọc tường đông, đoạn phía nam
+box("Cabinet.E", (X1 - 0.3, 1.85, 0.55), (0.45, 3.6, 1.1), "wood")     # tủ gỗ dài dọc tường đông, đoạn phía nam
 box("Cabinet.E2", (X1 - 1.8, 5.3, 0.55), (0.45, 2.2, 1.1), "wood")    # tủ gỗ ngắn ở đầu đông hàng bàn giữa
-for i, y in enumerate((1.4, 3.2)): box(f"Cabinet.E.speaker{i}", (X1 - 0.3, y, 1.2), (0.14, 0.14, 0.2), "dark")
+for i, y in enumerate((1.0, 2.8)): box(f"Cabinet.E.speaker{i}", (X1 - 0.3, y, 1.2), (0.14, 0.14, 0.2), "dark")
 # trần bê tông lộ: ray đèn rọi đen + ống chữa cháy đỏ
 for i, y in enumerate((2.6, 6.2, 9.6)):
     box(f"Track{i}", ((X0 + X1) / 2, y, HC - 0.12), (X1 - X0 - 1.5, 0.035, 0.035), "black")
