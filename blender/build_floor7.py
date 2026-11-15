@@ -45,7 +45,8 @@ M = dict(
     darkwood=mat("darkwood", (0.3, 0.19, 0.12)), pink=mat("pink", (0.95, 0.45, 0.65)),
     screen=mat("screen", (0.25, 0.45, 0.9), emit=1.5), red=mat("red", (0.7, 0.15, 0.12)),
     yellow=mat("yellow", (0.85, 0.7, 0.2)), tabletop=mat("tabletop", (0.58, 0.47, 0.37), rough=0.5), velvet=mat("velvet", (0.012, 0.11, 0.075), rough=0.9),
-    navy=mat("navy", (0.07, 0.16, 0.36), rough=0.5), espresso=mat("espresso", (0.07, 0.045, 0.03), rough=0.5), exitgreen=mat("exitgreen", (0.1, 0.9, 0.35), emit=2.0), walnut=mat("walnut", (0.2, 0.15, 0.11), rough=0.45), slate=mat("slate", (0.27, 0.3, 0.34)), steel=mat("steel", (0.78, 0.78, 0.78), rough=0.35, metal=0.3),
+    navy=mat("navy", (0.07, 0.16, 0.36), rough=0.5), cream=mat("cream", (0.78, 0.7, 0.52), rough=0.8), tint=mat("tint", (0.05, 0.06, 0.07), alpha=0.5, rough=0.05),
+    tile=mat("tile", (0.45, 0.58, 0.78), rough=0.6), firered=mat("firered", (0.7, 0.06, 0.05), rough=0.4), espresso=mat("espresso", (0.07, 0.045, 0.03), rough=0.5), exitgreen=mat("exitgreen", (0.1, 0.9, 0.35), emit=2.0), walnut=mat("walnut", (0.2, 0.15, 0.11), rough=0.45), slate=mat("slate", (0.27, 0.3, 0.34)), steel=mat("steel", (0.78, 0.78, 0.78), rough=0.35, metal=0.3),
 )
 
 # sàn gỗ: ảnh vân ván sinh bằng code (16 ván / 3.2 m, ván chạy theo trục y), lưu vào assets để GLB nhúng theo
@@ -303,34 +304,42 @@ BOARD = [("box", (0, 0, 1.5), (1.2, 0.04, 1.0), "blue")]
 
 # ---------- tường ----------
 H = 2.8
-def wall(name, x1, y1, x2, y2, kind="wall", inside=(0, 0), bays=None):
-    """Tường thẳng theo trục. kind: wall | glass (vách kính) | window (cửa sổ ngoài)."""
+def wall(name, x1, y1, x2, y2, kind="wall", inside=(0, 0), bays=None, punched=False):
+    """Tường thẳng theo trục. kind: wall | glass (vách kính) | window (cửa sổ ngoài). punched: cửa sổ từng ô trên tường đặc (trụ tường giữa các ô, mảng tường phía trên, rèm màu kem)."""
     cx, cy, lx, ly = (x1 + x2) / 2, (y1 + y2) / 2, abs(x2 - x1) or 0.1, abs(y2 - y1) or 0.1
     if kind == "wall":
         part(name, "tbox", (cx, cy, H / 2), (lx, ly, H), "wall", floor_root); return
     sill = 0.12 if kind == "window" else 0.0   # cửa sổ gần như sát sàn
+    hd = 0.5 if punched else 0.0               # mảng tường đặc phía trên ô cửa
+    blind = "cream" if punched else "white"
     frame = "white" if kind == "window" else "dark"
     n = bays or max(1, round(max(lx, ly) / 1.5))   # số ô (mặc định ~1.5 m/ô)
     if sill: box(name + ".sill", (cx, cy, sill / 2), (lx, ly, sill), "wall")
-    box(name + ".pane", (cx, cy, (H + sill) / 2), (lx * 0.999 if lx > 0.1 else 0.03, ly * 0.999 if ly > 0.1 else 0.03, H - sill), kind)
-    box(name + ".top", (cx, cy, H - 0.04), (lx, ly, 0.08), frame)
+    box(name + ".pane", (cx, cy, (H - hd + sill) / 2), (lx * 0.999 if lx > 0.1 else 0.03, ly * 0.999 if ly > 0.1 else 0.03, H - hd - sill), kind)
+    if punched:
+        part(name + ".top", "tbox", (cx, cy, H - hd / 2), (lx, ly, hd), "wall", floor_root)
+        box(name + ".transom", (cx, cy, 0.95), (lx if lx > 0.1 else 0.05, ly if ly > 0.1 else 0.05, 0.05), "white")   # đố ngang chia ô cửa
+    else:
+        box(name + ".top", (cx, cy, H - 0.04), (lx, ly, 0.08), frame)
     if kind == "window":  # rèm sáo: lá mảnh sát nhau + dây nâng + dây kéo (inside = hướng vào trong phòng)
-        for k in range(int((H - sill - 0.15) / 0.04)):
-            box(f"{name}.slat{k}", (cx, cy, sill + 0.06 + k * 0.04), (lx if lx > 0.1 else 0.015, ly if ly > 0.1 else 0.015, 0.004), "white")
+        for k in range(int((H - hd - sill - 0.15) / 0.04)):
+            box(f"{name}.slat{k}", (cx, cy, sill + 0.06 + k * 0.04), (lx if lx > 0.1 else 0.015, ly if ly > 0.1 else 0.015, 0.004), blind)
         L = max(lx, ly)
         for j in range(int(L / 0.75)):
             t = (j + 0.5) * 0.75 / L
-            box(f"{name}.slat.cord{j}", (x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, (H + sill) / 2), (0.005, 0.005, H - sill - 0.1), "white")
+            box(f"{name}.slat.cord{j}", (x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, (H - hd + sill) / 2), (0.005, 0.005, H - hd - sill - 0.1), "white")
         # dây kéo: mỗi ô rèm một dây, sát mép phải khi đứng trong phòng nhìn ra (inside = hướng vào trong phòng)
         right_is_end = (-inside[1]) * (x2 - x1) + inside[0] * (y2 - y1) > 0
         for i in range(n):
-            t = ((i + 1) / n - 0.12 / L) if right_is_end else (i / n + 0.12 / L)
+            edge = 0.33 if punched else 0.12
+            t = ((i + 1) / n - edge / L) if right_is_end else (i / n + edge / L)
             qx, qy = x1 + (x2 - x1) * t + inside[0] * 0.05, y1 + (y2 - y1) * t + inside[1] * 0.05
-            box(f"{name}.slat.pull{i}", (qx, qy, (H + 0.9) / 2), (0.006, 0.006, H - 1.0), "white")
+            box(f"{name}.slat.pull{i}", (qx, qy, (H - hd + 0.9) / 2), (0.006, 0.006, H - hd - 1.0), "white")
             box(f"{name}.slat.knob{i}", (qx, qy, 0.87), (0.02, 0.02, 0.06), "grey")
     for i in range(n + 1):  # đố dọc
         t = i / n
-        box(f"{name}.post{i}", (x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, H / 2), (0.07 if lx > 0.1 else 0.1, 0.07 if ly > 0.1 else 0.1, H), frame)
+        pw = 0.45 if punched else 0.07
+        part(f"{name}.post{i}", "tbox" if punched else "box", (x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, H / 2), (pw if lx > 0.1 else 0.1, pw if ly > 0.1 else 0.1, H), "wall" if punched else frame, floor_root)
 
 def off(x, y, rot, dx, dy):  # điểm lệch (dx,dy) cục bộ sau khi xoay
     r = math.radians(rot)
@@ -363,8 +372,12 @@ YL = YS + 1.7                          # mép bắc chiếu nghỉ tầng 7 tron
 box("Floor.stairs", (-2, (YS + YL) / 2, -0.05), (4, YL - YS, 0.1), "concrete")   # chiếu nghỉ ngang sàn, ngay sau cửa thoát hiểm
 
 # vỏ ngoài văn phòng: cửa sổ nam, đông (phần khu làm việc), bắc; tường đông pantry đặc (bếp + tranh)
-wall("Win.S", X0, 0, X1, 0, "window", (0, 1)); wall("Win.E", X1, 0, X1, YM - 1.8, "window", (-1, 0))
-wall("Exit.wall", X1, YM - 1.8, X1, YM); place("D2.exit", EXIT_DOOR, X1 - 0.06, YM - 0.95, 90)
+wall("Win.S", X0, 0, X1, 0, "window", (0, 1), punched=True)
+wall("Wall.SE", X1, 0, X1, 1.6); wall("Win.E", X1, 1.6, X1, YM - 3.4, "window", (-1, 0), punched=True)   # góc đông-nam là mảng tường đặc treo bảng trắng
+box("Board.frame", (X1 - 0.06, 0.85, 1.45), (0.02, 1.1, 1.4), "grey"); box("Board.white", (X1 - 0.075, 0.85, 1.45), (0.012, 1.02, 1.32), "white")
+wall("Exit.wall", X1, YM - 3.4, X1, YM)                                 # tường đặc: cửa EXIT + bảng ghim, kệ sách đứng phía trước
+box("Pin.frame", (X1 - 0.06, YM - 2.2, 1.7), (0.02, 1.0, 1.25), "wood"); box("Pin.board", (X1 - 0.075, YM - 2.2, 1.7), (0.012, 0.92, 1.17), "tile")   # bảng ghim hoạ tiết xanh giữa cửa EXIT và kệ sách
+box("Pin.note", (X1 - 0.083, YM - 2.35, 1.6), (0.006, 0.22, 0.3), "white"); box("Pin.flag", (X1 - 0.083, YM - 2.05, 1.95), (0.006, 0.24, 0.24), "navy"); place("D2.exit", EXIT_DOOR, X1 - 0.06, YM - 0.95, 90)
 wall("Win.N.meet", XT, Y1, XM, Y1, "window", (0, -1), bays=4); wall("Win.N", XM, Y1, XB - 0.55, Y1, "window", (0, -1), bays=2); wall("Pantry.N", XB - 0.55, Y1, X1, Y1)   # phòng họp dài đúng 3 ô cửa sổ (kể cả phần lõm sang dải hành lang)
 wall("Pantry.E", X1, YM, X1, Y1)
 
@@ -386,10 +399,27 @@ box("Exit.sign", (1.75, YM - 0.056, 1.78), (0.34, 0.008, 0.13), "exitgreen")   #
 box("Exit.alarm", (1.6, YM - 0.058, 1.25), (0.1, 0.012, 0.1), "red"); box("Exit.switch", (1.38, YM - 0.056, 1.25), (0.086, 0.008, 0.086), "white")
 box("Exit.mat", (0.75, YM - 0.8, 0.006), (1.3, 1.4, 0.012), "dark")             # thảm sẫm trước hai cửa
 box("Cor.panel", (0.06, (7.5 + YM - 1.15) / 2, 1.3), (0.02, YM - 1.15 - 7.5, 2.6), "espresso")   # ốp gỗ sẫm tường tây đoạn gần cửa
-wall("Cor.E1", X0, 0, X0, 5.6); wall("Cor.E2", X0, 6.6, X0, YM)
+ED0, ED1 = 7.1, 8.8                    # hai mép cửa chính (theo video: bảng điều khiển rồi tới ghế bành nằm ngay bắc cửa)
+wall("Cor.E1", X0, 0, X0, ED0); wall("Cor.E2", X0, ED1, X0, YM)
+part("Entry.top", "tbox", (X0, (ED0 + ED1) / 2, (2.25 + H) / 2), (0.1, ED1 - ED0, H - 2.25), "wall", floor_root)
+for i, (ya, yb) in enumerate(((ED0, (ED0 + ED1) / 2), ((ED0 + ED1) / 2, ED1))):   # 2 cánh, kính sẫm màu
+    box(f"Entry.leaf{i}.pane", (X0, (ya + yb) / 2, 1.125), (0.02, yb - ya - 0.1, 2.15), "tint")
+    for n, (y, z, sy, sz) in enumerate(((ya + 0.04, 1.125, 0.08, 2.25), (yb - 0.04, 1.125, 0.08, 2.25), ((ya + yb) / 2, 0.06, yb - ya, 0.12), ((ya + yb) / 2, 2.21, yb - ya, 0.08))):
+        box(f"Entry.leaf{i}.frame{n}", (X0, y, z), (0.06, sy, sz), "slate")
+    hy = yb - 0.1 if i == 0 else ya + 0.1
+    box(f"Entry.leaf{i}.handle", (X0, hy, 1.05), (0.16, 0.03, 0.14), "metal")
+# bảng điều khiển + công tắc trên tường giữa cửa chính và ghế bành; công tắc + ổ điện trên mảng tường nam cửa
+box("Entry.panel", (X0 + 0.056, ED1 + 0.5, 1.4), (0.012, 0.36, 0.2), "white"); box("Entry.panel.screen", (X0 + 0.063, ED1 + 0.58, 1.42), (0.004, 0.1, 0.08), "dark")
+for i in range(3): box(f"Entry.switch{i}", (X0 + 0.056, ED1 + 0.38 + i * 0.1, 1.2), (0.01, 0.086, 0.086), "white")
+box("Entry.switchS", (X0 + 0.056, ED0 - 1.6, 1.25), (0.01, 0.086, 0.086), "white"); place("Entry.outletS", OUTLET, X0 + 0.05, ED0 - 1.6, -90, z=0.32)
+# miệng gió điều hoà chạy sát trần trên mảng tường này
+for i, (ya, yb) in enumerate(((ED0 - 3.4, ED0 - 0.1), (ED0 + 0.05, ED1 + 0.2), (ED1 + 0.35, YM - 0.15))):
+    box(f"Entry.grille{i}", (X0 + 0.056, (ya + yb) / 2, 2.6), (0.012, yb - ya, 0.14), "grey")
 place("Elevator1", ELEVATOR, 0.09, 4.0, 90); place("Elevator2", ELEVATOR, 0.09, 6.6, 90)
 box("Cor.shoes", (3.7, 2.2, 0.25), (0.45, 2.4, 0.5), "darkwood")
-box("Cor.cabinet", (3.7, 9.5, 1.2), (0.5, 2.6, 2.4), "darkwood")
+# tủ gỗ óc chó cạnh cửa chính (phía hành lang): tủ thấp, hốc có đèn, tủ treo sát trần
+box("Cor.cabinet", (X0 - 0.3, ED1 + 0.95, 0.55), (0.5, 0.9, 1.1), "darkwood"); box("Cor.cabinet.back", (X0 - 0.07, ED1 + 0.95, 1.5), (0.04, 0.9, 0.8), "darkwood")
+box("Cor.cabinet.top", (X0 - 0.3, ED1 + 0.95, 2.35), (0.5, 0.9, 0.9), "darkwood"); box("Cor.cabinet.led", (X0 - 0.3, ED1 + 0.95, 1.895), (0.4, 0.03, 0.01), "screen")
 
 # 7.4 thang thoát hiểm (x -4–0, y YS–Y1) — theo hình vẽ của chủ nhà: qua cửa B là chiếu nghỉ chạy hết bề ngang ở đầu nam;
 # vế ĐI LÊN chạy về bắc dọc tường tây; vế ĐI XUỐNG chạy về bắc dọc tường hành lang, tới đầu bắc rẽ sang tây vài bậc rồi quay về nam ở làn giữa
@@ -427,6 +457,11 @@ wall("Glass.W", X0, YM, XM - 0.1 - DW, YM, "glass", bays=2)   # 2 ô kính + c�
 # pantry không có vách kính: cả đoạn XM→X1 là cửa lùa xanh dương, hai cụm cánh xếp ở hai đầu, kéo vào giữa để đóng
 PART_OPEN = 1.0                       # 1 = mở hết (cánh xếp chồng ở hai đầu), 0 = đóng kín
 box("Part.header", ((XM + X1) / 2, YM, H - 0.04), (X1 - XM, 0.1, 0.08), "dark")
+# dầm hộp thạch cao phía trên vách kính phòng họp + ray cửa lùa pantry (theo video: kính chỉ cao ~2.4 m, phía trên là hộp trắng có miệng gió điều hoà)
+part("Bulkhead", "tbox", ((X0 + X1) / 2, YM, H - 0.2), (X1 - X0, 0.16, 0.4), "wall", floor_root)
+for i in range(5):
+    gl = (X1 - X0 - 0.6) / 5
+    box(f"Bulkhead.grille{i}", (X0 + 0.3 + gl * (i + 0.5), YM - 0.086, H - 0.2), (gl - 0.25, 0.012, 0.14), "grey")
 box("Part.track", ((XM + X1) / 2, YM, 0.003), (X1 - XM, 0.05, 0.006), "dark")
 PN = round((X1 - XM - 0.16) / 2 / 0.5); PW = (X1 - XM - 0.16) / 2 / PN   # số cánh mỗi bên, bề rộng cánh ~0.5 m
 for side, x_end, sgn in (("W", XM + 0.08, 1), ("E", X1, -1)):
@@ -522,8 +557,19 @@ for i in range(4):
 bench("Desk.1", X1 - 3.0, 1.9, 3); bench("Desk.2", X1 - 7.5, 1.9, 3)   # hàng sát cửa sổ nam
 bench("Desk.3", X1 - 3.0, 5.5, 3); bench("Desk.4", X1 - 7.5, 5.5, 3)
 bench("Desk.6", X1 - 4.7, 9.1, 3)                                     # cụm gần vách ngăn pantry
-place("Bookshelf", BOOKSHELF, X1 - 1.2, 9.3)
-box("Cabinet.E", (X1 - 0.4, 2.2, 0.45), (0.5, 3.5, 0.9), "wood")      # tủ thấp phía cửa sổ đông
+place("Bookshelf", BOOKSHELF, X1 - 0.75, YM - 3.9, 90)                # cột xanh bọc kệ gỗ, sát tường đông, ngay nam bảng ghim; cạnh nó là ô cửa sổ có chậu cây
+part("Plant.pot", "cyl", (X1 - 0.4, YM - 5.0, 0.2), (0.3, 0.3, 0.4), "white", floor_root)
+for i, (dx, dy, z) in enumerate(((0, 0, 0.75), (0.12, 0.1, 1.0), (-0.1, 0.12, 1.2), (0.05, -0.12, 1.35))):
+    part(f"Plant.leaf{i}", "rbox", (X1 - 0.4 + dx, YM - 5.0 + dy, z), (0.3, 0.3, 0.3), "c_green" if "c_green" in M else "green", floor_root)
+box("Cabinet.E", (X1 - 0.4, 3.6, 0.55), (0.5, 3.6, 1.1), "wood")      # tủ gỗ thấp dọc cửa sổ đông
+box("Cabinet.E2", (X1 - 1.35, 3.7, 0.55), (1.4, 0.45, 1.1), "wood")   # nhánh tủ vuông góc, ngăn giữa hai cụm bàn
+for i, y in enumerate((2.4, 4.9)): box(f"Cabinet.E.speaker{i}", (X1 - 0.4, y, 1.2), (0.14, 0.14, 0.2), "dark")
+# trần bê tông lộ: ray đèn rọi đen + ống chữa cháy đỏ
+for i, y in enumerate((2.6, 6.2, 9.6)):
+    box(f"Track{i}", ((X0 + X1) / 2, y, H - 0.12), (X1 - X0 - 1.5, 0.035, 0.035), "black")
+    for j in range(5):
+        part(f"Track{i}.spot{j}", "cyl", (X0 + 1.6 + j * (X1 - X0 - 3.2) / 4, y, H - 0.22), (0.07, 0.07, 0.16), "black", floor_root).rotation_euler = (math.radians(25), 0, 0)
+box("FirePipe.EW", ((X0 + X1) / 2, 4.4, H - 0.08), (X1 - X0 - 0.2, 0.05, 0.05), "firered"); box("FirePipe.NS", (X0 + 3.2, YM / 2, H - 0.08), (0.05, YM - 0.2, 0.05), "firered")
 box("Cabinet.W", (X0 + 0.35, 2.85, 0.45), (0.5, 4.5, 0.9), "wood")    # tủ thấp tường hành lang
 # theo ảnh: 2 ghế bành tựa tường hành lang sát góc vách kính, bàn kính nhỏ ở giữa, ghế thư giãn trước vách kính
 place("Lounge.arm1", armchair(1), X0 + 0.5, 10.3, -90); place("Lounge.arm2", armchair(-1), X0 + 0.5, 11.47, -90)
