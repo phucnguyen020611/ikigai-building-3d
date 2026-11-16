@@ -1,5 +1,6 @@
 .DS_Store
-.claude/
+.claude/*
+!.claude/launch.json
 *.blend1
 blender/*.before-*.blend
 blender/preview/
