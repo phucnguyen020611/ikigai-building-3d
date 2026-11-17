@@ -18,7 +18,7 @@
   #views #mode { background: #c8e04a; border-color: #9db52f; font-weight: 600; }
   #views #mode:hover { background: #1c2a33; color: #fff; }
   #views #mode:disabled { opacity: 0.5; cursor: default; }
-  #proj { margin-top: 8px; }
+  #proj { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   #proj button, #proj-modal button { border: 1px solid #1c2a3344; background: #fff; color: #1c2a33; border-radius: 6px; padding: 4px 9px; font-size: 13px; cursor: pointer; }
   #proj button:hover, #proj-modal button:hover:not(:disabled) { background: #1c2a33; color: #fff; }
   #proj-modal button:disabled { opacity: 0.45; cursor: default; }
@@ -53,7 +53,7 @@
   <p id="status" role="status">Đang tải mô hình…</p>
   <p id="hint"></p>
   <div id="views"><button id="mode" disabled></button></div>
-  <div id="proj"><button id="proj-open">Máy chiếu…</button></div>
+  <div id="proj"></div>
 </div>
 <dialog id="proj-modal" aria-labelledby="pm-title">
   <header><h2 id="pm-title">Máy chiếu</h2><button id="pm-close" aria-label="Đóng">✕</button></header>
@@ -63,7 +63,7 @@
     <button id="pm-back" aria-label="Lùi 10 giây">−10s</button><button id="pm-toggle">Phát</button><button id="pm-fwd" aria-label="Tới 10 giây">+10s</button>
     <button id="pm-skip">Bỏ qua ⏭</button><button id="pm-stop">Tắt máy</button>
   </div>
-  <div class="pm-row"><button id="pm-mute">Tắt tiếng</button><input id="pm-vol" type="range" min="0" max="100" value="100" aria-label="Âm lượng"></div>
+  <div class="pm-row"><button id="pm-sheet" hidden>Kéo màn xuống</button><button id="pm-mute">Tắt tiếng</button><input id="pm-vol" type="range" min="0" max="100" value="100" aria-label="Âm lượng"></div>
   <div class="pm-row"><input id="pm-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Dán link YouTube / Vimeo / file video (https)…" aria-label="Link video"></div>
   <div class="pm-row"><button id="pm-add">Thêm vào hàng chờ</button><button id="pm-playnow">Phát ngay</button></div>
   <p id="pm-msg" role="alert"></p>
@@ -113,7 +113,7 @@ sun.shadow.normalBias = 0.05;   // chống sọc nhiễu bóng (shadow acne) tr�
 Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, far: 60 });
 scene.add(sun, sun.target);
 
-let modelRoot = null; const projHit = new THREE.Box3();
+let modelRoot = null;
 new GLTFLoader().load('assets/floor7.glb', (gltf) => {
   gltf.scene.traverse((o) => {
     if (!o.isMesh) return;
@@ -125,7 +125,7 @@ new GLTFLoader().load('assets/floor7.glb', (gltf) => {
   scene.add(gltf.scene);
   buildCollision(gltf.scene);
   modelRoot = gltf.scene;
-  gltf.scene.traverse((o) => { if (/^Desk\.?projector$/.test(o.name)) projHit.setFromObject(o).expandByScalar(0.07); });   // vùng bấm quanh máy chiếu
+  gltf.scene.traverse((o) => { for (const D of devices) if (D.cfg.hit.test(o.name)) D.hits.push(new THREE.Box3().setFromObject(o).expandByScalar(0.06)); });   // vùng bấm quanh từng thiết bị phát video
   modeBtn.disabled = false;
   setMode('free');
 }, undefined, (e) => { status.textContent = 'Không tải được mô hình: ' + e.message; });
@@ -149,6 +149,8 @@ const VIEWS = {
   'Bếp': [bl(11.6, 12.6, 1.6), bl(15, 13.8, 1)],
   'Khu làm việc': [bl(4.8, 0.8, 1.7), bl(12, 6, 1)],
   'Màn chiếu': [bl(8.4, 6.3, 1.6), bl(4, 5.7, 1.8)],
+  'Màn chiếu pantry': [bl(12.6, 14.1, 1.55), bl(8.8, 14.25, 1.4)],
+  'TV phòng họp': [bl(6.6, 14.9, 1.5), bl(3.2, 14.5, 1.3)],
   'Bàn 3 màn hình': [bl(2.8, 0.6, 1.5), bl(4.4, 1.6, 0.95)],
   'Máy RGB': [bl(7.75, 6.1, 1.3), bl(8.55, 5.3, 1.0)],
   'Kệ sách': [bl(10.6, 6.2, 1.7), bl(13.25, 8.7, 1.7)],
@@ -329,77 +331,114 @@ function stepWalk(dt) {
 function step() {
   const dt = Math.min(clock.getDelta(), 0.1);
   (mode === 'walk' ? stepWalk : stepFree)(dt);
-  stepProjectorFx(dt);
+  stepDevices(dt);
 }
 
-// ---------- máy chiếu: phát video từ link lên mảng tường hành lang trước máy chiếu ----------
+// ---------- thiết bị phát video: máy chiếu khu làm việc, máy chiếu pantry (màn cuốn), TV phòng họp — mỗi thiết bị một hàng chờ riêng ----------
 // Video (iframe YouTube/Vimeo hoặc thẻ <video>) là phần tử DOM đặt trong không gian 3D bằng CSS3DRenderer, nằm DƯỚI canvas WebGL;
-// một tấm "khoét lỗ" trong cảnh WebGL ghi alpha 0 đúng chỗ màn chiếu nên video lộ ra, còn bàn ghế đứng trước vẫn che được nó.
+// một tấm "khoét lỗ" trong cảnh WebGL nhân alpha của vùng màn hình xuống gần 0 nên video lộ ra, còn bàn ghế đứng trước vẫn che được nó.
 // An toàn: chỉ nhận https; YouTube/Vimeo được dựng lại thành link nhúng từ mã video (không nhúng trang lạ), iframe bị sandbox
 // (không popup, không điều hướng trang, không form); link khác chỉ được nạp vào thẻ <video> — trình duyệt chỉ giải mã media, không chạy script.
-const SCREEN = { w: 2.2, h: 2.2 * 9 / 16, pos: bl(4.066, 5.7, 1.85) };   // toạ độ Blender: mặt tường x=4.05, tim màn y=5.7, cao 1.85
 const cssRenderer = new CSS3DRenderer();
 Object.assign(cssRenderer.domElement.style, { position: 'fixed', inset: '0', zIndex: '0', pointerEvents: 'none' });
 document.body.appendChild(cssRenderer.domElement);
 const cssScene = new THREE.Scene();
-const projBox = document.createElement('div');
-projBox.style.cssText = 'width:1280px;height:720px;background:#000';
-const projObj = new CSS3DObject(projBox);
-// Tấm khoét lỗ: nhân màu + alpha của mảng tường đã vẽ với một mặt nạ — giữa màn còn ~8% tường (ảnh chiếu hơi bạc màu vì phòng sáng, vẫn thấy vân sơn),
-// ra tới mép thì mờ dần về tường nguyên vẹn nên khung hình không sắc cạnh như một cái TV.
-const UV_VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
-const FEATHER = 'vec2 f = smoothstep(vec2(0.0), vec2(0.014, 0.024), vUv) * smoothstep(vec2(0.0), vec2(0.014, 0.024), 1.0 - vUv); float e = f.x * f.y;';
-const hole = new THREE.Mesh(new THREE.PlaneGeometry(SCREEN.w, SCREEN.h), new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, fog: false, toneMapped: false,
-  blending: THREE.CustomBlending, blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcAlphaFactor,
-  vertexShader: UV_VERT,
-  fragmentShader: `varying vec2 vUv; void main(){ ${FEATHER} gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0 - 0.92 * e); }`,
-}));
-hole.renderOrder = 1;
-for (const o of [projObj, hole]) { o.position.copy(SCREEN.pos); o.rotation.y = Math.PI / 2; o.visible = false; }   // mặt quay về +x (đông), phía máy chiếu
-projObj.scale.setScalar(SCREEN.w / 1280);
-cssScene.add(projObj); scene.add(hole);
-
-// hiệu ứng máy chiếu (chỉ hiện khi đang chiếu): tối dần về 4 góc + rung sáng nhẹ, chùm sáng từ ống kính tới màn, quầng sáng ở ống kính, ánh sáng hắt từ màn ra phòng
-const fx = new THREE.Group(); fx.visible = false; scene.add(fx);
 const fxTime = { value: 0 };
-const vignette = new THREE.Mesh(hole.geometry, new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, fog: false, toneMapped: false, uniforms: { time: fxTime },
-  vertexShader: UV_VERT,
-  fragmentShader: `varying vec2 vUv; uniform float time; void main(){ ${FEATHER}
-    float v = smoothstep(0.3, 0.78, distance(vUv, vec2(0.5))) * 0.42 + 0.025 * sin(time * 47.0) * sin(time * 13.0) + 0.03;
-    gl_FragColor = vec4(0.0, 0.0, 0.0, clamp(v, 0.0, 1.0) * e); }`,
-}));
-vignette.position.copy(SCREEN.pos).x += 0.002; vignette.rotation.y = Math.PI / 2; vignette.renderOrder = 2;
-const LENS = bl(7.755, 5.74, 0.79);   // ống kính máy chiếu (theo vị trí Desk.projector trong build_floor7.py)
-{
-  const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sy, sz]) => bl(4.075, 5.7 + sy * SCREEN.w / 2, 1.85 + sz * SCREEN.h / 2));
-  const pos = [], a = [];
-  for (let i = 0; i < 4; i++) for (const [v, al] of [[LENS, 1], [c[i], 0.1], [c[(i + 1) % 4], 0.1]]) { pos.push(v.x, v.y, v.z); a.push(al); }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('a', new THREE.Float32BufferAttribute(a, 1));
-  const beam = new THREE.Mesh(g, new THREE.ShaderMaterial({   // cộng màu (One/One, alpha 0) để chùm sáng không làm tối video phía sau
-    transparent: true, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide, uniforms: { time: fxTime },
-    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
-    vertexShader: 'attribute float a; varying float vA; void main(){ vA = a; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: 'varying float vA; uniform float time; void main(){ float k = (0.02 + 0.2 * vA * vA) * (0.9 + 0.1 * sin(time * 9.0) * sin(time * 3.7)); gl_FragColor = vec4(vec3(0.82, 0.9, 1.0) * k, 0.0); }',
-  }));
-  beam.renderOrder = 3; beam.frustumCulled = false;
+const UV_VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+const FEATHER = 'vec2 f = smoothstep(vec2(0.0), fe, vUv) * smoothstep(vec2(0.0), fe, 1.0 - vUv); float e = f.x * f.y;';   // mép mờ dần
+// Toạ độ theo Blender (x, y, cao); mọi màn đều quay mặt về +x (đông). Vị trí khớp với build_floor7.py — đổi bên đó thì sửa ở đây.
+//   keep: phần nền (tường/màn) còn thấy xuyên qua ảnh — ảnh máy chiếu hơi bạc màu, TV thì không · fe: bề rộng mép mờ (tỉ lệ) ·
+//   lens: ống kính máy chiếu (có chùm sáng + quầng sáng) · sheet: màn cuốn kéo xuống từ hộp treo · hit: tên vật trong mô hình bấm vào để mở bảng
+const DEVICES = [
+  { id: 'work', name: 'Máy chiếu khu làm việc', center: [4.066, 5.7, 1.85], w: 2.2, keep: 0.08, fe: [0.014, 0.024], vignette: 0.42,
+    lens: [7.755, 5.74, 0.79], light: 3.0, hit: /^Desk\.?projector$/ },
+  { id: 'pantry', name: 'Máy chiếu pantry', center: [8.868, 14.25, 1.455], w: 4.0, keep: 0.1, fe: [0.008, 0.014], vignette: 0.36,
+    lens: [12.2, 16.02, 1.15], light: 4.0, hit: /^Pantry\.?(projector|screen\.?case)$/, sheet: { x: 8.86, w: 4.14, top: 2.675, len: 2.4 } },
+  { id: 'tv', name: 'TV phòng họp', center: [3.185, 14.5, 1.35], w: 1.41, keep: 0, fe: [0.002, 0.0035], vignette: 0, light: 1.6, hit: /^Meet\.?tv$/ },
+];
+const glowTex = (() => {
   const cv = document.createElement('canvas'); cv.width = cv.height = 64;
-  const ctx = cv.getContext('2d'), grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.25, 'rgba(200,225,255,0.55)'); grad.addColorStop(1, 'rgba(160,200,255,0)');
-  ctx.fillStyle = grad; ctx.fillRect(0, 0, 64, 64);
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }));
-  glow.position.copy(LENS).x -= 0.02; glow.scale.setScalar(0.3); glow.renderOrder = 4;
-  fx.add(vignette, beam, glow);
+  const ctx = cv.getContext('2d'), g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.25, 'rgba(200,225,255,0.55)'); g.addColorStop(1, 'rgba(160,200,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(cv);
+})();
+function makeDevice(cfg) {
+  const D = { cfg, queue: [], now: null, volume: 1, muted: false, hits: [], drop: cfg.sheet ? 0 : 1, wantDown: false };
+  const h = cfg.w * 9 / 16, center = bl(...cfg.center), fe = { value: new THREE.Vector2(...cfg.fe) };
+  D.box = document.createElement('div');
+  D.box.style.cssText = 'width:1280px;height:720px;background:#000';
+  D.obj = new CSS3DObject(D.box);
+  // tấm khoét lỗ: nhân màu + alpha của nền đã vẽ (tường / màn cuốn / mặt TV) với mặt nạ — giữa màn còn `keep` nền, ra mép mờ dần về nền nguyên vẹn
+  D.hole = new THREE.Mesh(new THREE.PlaneGeometry(cfg.w, h), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false, toneMapped: false, uniforms: { fe, keep: { value: cfg.keep } },
+    blending: THREE.CustomBlending, blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcAlphaFactor,
+    vertexShader: UV_VERT,
+    fragmentShader: `varying vec2 vUv; uniform vec2 fe; uniform float keep; void main(){ ${FEATHER} gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0 - (1.0 - keep) * e); }`,
+  }));
+  D.hole.renderOrder = 1;
+  for (const o of [D.obj, D.hole]) { o.position.copy(center); o.rotation.y = Math.PI / 2; o.visible = false; }
+  D.obj.scale.setScalar(cfg.w / 1280);
+  cssScene.add(D.obj); scene.add(D.hole);
+  // hiệu ứng chỉ hiện khi đang chiếu: tối dần về 4 góc + rung sáng nhẹ, chùm sáng từ ống kính tới màn, quầng sáng ở ống kính
+  D.fx = new THREE.Group(); D.fx.visible = false; scene.add(D.fx);
+  if (cfg.vignette) {
+    const vg = new THREE.Mesh(D.hole.geometry, new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, fog: false, toneMapped: false, uniforms: { time: fxTime, fe, amt: { value: cfg.vignette } },
+      vertexShader: UV_VERT,
+      fragmentShader: `varying vec2 vUv; uniform float time, amt; uniform vec2 fe; void main(){ ${FEATHER}
+        float v = smoothstep(0.3, 0.78, distance(vUv, vec2(0.5))) * amt + 0.025 * sin(time * 47.0) * sin(time * 13.0) + 0.03;
+        gl_FragColor = vec4(0.0, 0.0, 0.0, clamp(v, 0.0, 1.0) * e); }`,
+    }));
+    vg.position.copy(center).x += 0.002; vg.rotation.y = Math.PI / 2; vg.renderOrder = 2;
+    D.fx.add(vg);
+  }
+  if (cfg.lens) {
+    const lens = bl(...cfg.lens), [cx, cy, cz] = cfg.center;
+    const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sy, sz]) => bl(cx + 0.009, cy + sy * cfg.w / 2, cz + sz * h / 2));
+    const pos = [], a = [];
+    for (let i = 0; i < 4; i++) for (const [v, al] of [[lens, 1], [c[i], 0.1], [c[(i + 1) % 4], 0.1]]) { pos.push(v.x, v.y, v.z); a.push(al); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('a', new THREE.Float32BufferAttribute(a, 1));
+    const beam = new THREE.Mesh(g, new THREE.ShaderMaterial({   // cộng màu (One/One, alpha 0) để chùm sáng không làm tối video phía sau
+      transparent: true, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide, uniforms: { time: fxTime },
+      blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+      vertexShader: 'attribute float a; varying float vA; void main(){ vA = a; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'varying float vA; uniform float time; void main(){ float k = (0.02 + 0.2 * vA * vA) * (0.9 + 0.1 * sin(time * 9.0) * sin(time * 3.7)); gl_FragColor = vec4(vec3(0.82, 0.9, 1.0) * k, 0.0); }',
+    }));
+    beam.renderOrder = 3; beam.frustumCulled = false;
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }));
+    glow.position.copy(lens).lerp(center, 0.01); glow.scale.setScalar(0.3); glow.renderOrder = 4;
+    D.fx.add(beam, glow);
+  }
+  D.light = new THREE.PointLight(0xc4d8ff, 0, 7, 1.6);   // ánh sáng hắt từ màn ra phòng; luôn có trong cảnh (cường độ 0 khi tắt) để bật/tắt không phải biên dịch lại shader
+  D.light.position.copy(center).x += 0.6; scene.add(D.light);
+  if (cfg.sheet) {   // màn cuốn: tấm vải trắng thả từ hộp treo xuống, có thanh nặng ở mép dưới; video chỉ hiện khi màn đã xuống hết
+    const s = cfg.sheet, white = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.95, side: THREE.DoubleSide });
+    D.sheet = new THREE.Mesh(new THREE.PlaneGeometry(s.w, 1), white);
+    D.sheet.rotation.y = Math.PI / 2; D.sheet.receiveShadow = true;
+    D.bar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.035, s.w + 0.04), new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.5 }));
+    scene.add(D.sheet, D.bar);
+  }
+  return D;
 }
-const projLight = new THREE.PointLight(0xc4d8ff, 0, 7, 1.6);   // luôn có trong cảnh (cường độ 0 khi tắt) để bật/tắt không phải biên dịch lại shader
-projLight.position.copy(SCREEN.pos).x += 0.6; scene.add(projLight);
-function setProjecting(on) { projObj.visible = hole.visible = fx.visible = on; }
-function stepProjectorFx(dt) {
+const devices = DEVICES.map(makeDevice);
+function stepDevices(dt) {
   fxTime.value = clock.elapsedTime;
-  const target = now ? (now.paused ? 2.2 : 3.0 + 0.9 * Math.sin(fxTime.value * 5.3) * Math.sin(fxTime.value * 1.7)) : 0;   // sáng tối chập chờn theo "nội dung" đang chiếu
-  projLight.intensity += (target - projLight.intensity) * Math.min(1, dt * 6);
+  for (const D of devices) {
+    const { cfg, now } = D;
+    if (cfg.sheet) {
+      D.drop = Math.max(0, Math.min(1, D.drop + (D.wantDown ? dt : -dt) / 1.8));   // kéo hết màn mất ~1.8 giây
+      const len = Math.max(0.001, D.drop * cfg.sheet.len), p = bl(cfg.sheet.x, cfg.center[1], cfg.sheet.top - len / 2);
+      D.sheet.position.copy(p); D.sheet.scale.y = len;
+      D.bar.position.set(p.x, cfg.sheet.top - len, p.z);
+      D.sheet.visible = D.bar.visible = D.drop > 0.005;
+    }
+    const lit = !!now && D.drop >= 1;
+    D.obj.visible = D.hole.visible = D.fx.visible = lit;
+    const target = lit ? cfg.light * (now.paused ? 0.75 : 1 + 0.3 * Math.sin(fxTime.value * 5.3) * Math.sin(fxTime.value * 1.7)) : 0;   // sáng tối chập chờn theo "nội dung" đang chiếu
+    D.light.intensity += (target - D.light.intensity) * Math.min(1, dt * 6);
+  }
 }
 
 function parseVideoLink(raw) {
@@ -428,63 +467,66 @@ function parseVideoLink(raw) {
 // (không nạp script của bên thứ ba vào trang), và chỉ nghe tin nhắn đến từ đúng khung đó.
 const $ = (id) => document.getElementById(id);
 const modal = $('proj-modal');
-const queue = [];                       // hàng chờ: { link, label }
-let now = null;                         // đang chiếu: { item, link, el, time, duration, paused, ready, poll }
-let volume = 1, muted = false, seeking = false;
+let active = devices[0];                // thiết bị đang mở trong bảng điều khiển
+let seeking = false;
 const fmt = (t) => { t = Math.max(0, Math.floor(t || 0)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
-const send = (msg) => { if (now && now.el.contentWindow) now.el.contentWindow.postMessage(JSON.stringify(msg), now.link.origin); };
-const yt = (func, ...args) => send({ event: 'command', func, args });
-const vm = (method, value) => send(value === undefined ? { method } : { method, value });
+const send = (D, msg) => { if (D.now && D.now.el.contentWindow) D.now.el.contentWindow.postMessage(JSON.stringify(msg), D.now.link.origin); };
+const yt = (D, func, ...args) => send(D, { event: 'command', func, args });
+const vm = (D, method, value) => send(D, value === undefined ? { method } : { method, value });
+const render = (D) => { if (D === active) renderAll(); };
 
-function applyVolume() {
+function applyVolume(D) {
+  const { now } = D;
   if (!now) return;
   const k = now.link.kind;
-  if (k === 'file') { now.el.volume = volume; now.el.muted = muted; }
-  else if (k === 'youtube') { yt('setVolume', Math.round(volume * 100)); yt(muted ? 'mute' : 'unMute'); }
-  else vm('setVolume', muted ? 0 : volume);
+  if (k === 'file') { now.el.volume = D.volume; now.el.muted = D.muted; }
+  else if (k === 'youtube') { yt(D, 'setVolume', Math.round(D.volume * 100)); yt(D, D.muted ? 'mute' : 'unMute'); }
+  else vm(D, 'setVolume', D.muted ? 0 : D.volume);
 }
-function setPaused(p) {
+function setPaused(D, p) {
+  const { now } = D;
   if (!now) return;
   now.paused = p;
   const k = now.link.kind;
   if (k === 'file') p ? now.el.pause() : now.el.play().catch(() => {});
-  else if (k === 'youtube') yt(p ? 'pauseVideo' : 'playVideo');
-  else vm(p ? 'pause' : 'play');
-  renderState();
+  else if (k === 'youtube') yt(D, p ? 'pauseVideo' : 'playVideo');
+  else vm(D, p ? 'pause' : 'play');
+  render(D);
 }
-function seekTo(t) {
+function seekTo(D, t) {
+  const { now } = D;
   if (!now) return;
   t = Math.max(0, now.duration ? Math.min(now.duration - 0.5, t) : t);
   now.time = t;
   const k = now.link.kind;
-  if (k === 'file') now.el.currentTime = t; else if (k === 'youtube') yt('seekTo', t, true); else vm('setCurrentTime', t);
-  renderState();
+  if (k === 'file') now.el.currentTime = t; else if (k === 'youtube') yt(D, 'seekTo', t, true); else vm(D, 'setCurrentTime', t);
+  render(D);
 }
-function stopProjector(msg) {
-  if (now && now.poll) clearInterval(now.poll);
-  projBox.replaceChildren();              // gỡ iframe/video khỏi trang: dừng phát và ngắt kết nối tới trang nguồn
-  now = null;
-  setProjecting(false);
-  if (msg) status.textContent = msg;
-  renderAll();
+function stopDevice(D, msg, keepSheet) {
+  if (D.now && D.now.poll) clearInterval(D.now.poll);
+  D.box.replaceChildren();                // gỡ iframe/video khỏi trang: dừng phát và ngắt kết nối tới trang nguồn
+  D.now = null;
+  if (!keepSheet) D.wantDown = false;     // hết chiếu thì màn tự cuốn lên
+  if (msg) status.textContent = `${D.cfg.name}: ${msg}`;
+  render(D);
 }
-function playNext(msg) {
-  const item = queue.shift();
-  if (item) playItem(item); else stopProjector(msg || 'Hết hàng chờ — đã tắt máy chiếu');
+function playNext(D, msg) {
+  const item = D.queue.shift();
+  if (item) playItem(D, item); else stopDevice(D, msg || 'hết hàng chờ — đã tắt');
 }
-function playItem(item) {
-  stopProjector();
+function playItem(D, item) {
+  stopDevice(D, '', true);
   const { link } = item;
   let el;
-  const mine = () => now && now.el === el;   // bỏ qua sự kiện của video cũ đã bị thay
+  const mine = () => D.now && D.now.el === el;   // bỏ qua sự kiện của video cũ đã bị thay
   if (link.kind === 'file') {
     el = document.createElement('video');
     Object.assign(el, { autoplay: true, playsInline: true, controls: false });
     el.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000';
-    const sync = () => { if (mine()) { now.time = el.currentTime; now.duration = isFinite(el.duration) ? el.duration : 0; now.paused = el.paused; renderState(); } };
+    const sync = () => { if (mine()) { const n = D.now; n.time = el.currentTime; n.duration = isFinite(el.duration) ? el.duration : 0; n.paused = el.paused; render(D); } };
     for (const ev of ['timeupdate', 'durationchange', 'play', 'pause']) el.addEventListener(ev, sync);
-    el.addEventListener('ended', () => { if (mine()) playNext(); });
-    el.addEventListener('error', () => { if (mine()) playNext('Máy chiếu: không phát được link này (cần link trực tiếp tới file video, hoặc link YouTube/Vimeo)'); });
+    el.addEventListener('ended', () => { if (mine()) playNext(D); });
+    el.addEventListener('error', () => { if (mine()) playNext(D, 'không phát được link này (cần link trực tiếp tới file video, hoặc link YouTube/Vimeo)'); });
     el.src = link.src;
     el.play().catch(() => {});
   } else {
@@ -495,58 +537,65 @@ function playItem(item) {
     el.width = 1280; el.height = 720; el.style.border = '0';
     el.src = link.src;
   }
-  projBox.appendChild(el);
-  now = { item, link, el, time: 0, duration: 0, paused: false, ready: false, poll: 0 };
+  D.box.appendChild(el);
+  D.now = { item, link, el, time: 0, duration: 0, paused: false, ready: false, poll: 0 };
   if (link.kind !== 'file') {   // "bắt tay" với trình phát nhúng cho tới khi nó trả lời, để nhận thời lượng / vị trí / trạng thái
     const hello = () => {
-      if (!mine() || now.ready) return;
-      if (link.kind === 'youtube') send({ event: 'listening', id: 'ikigai', channel: 'widget' });
-      else for (const ev of ['timeupdate', 'play', 'pause', 'ended']) vm('addEventListener', ev);
+      if (!mine() || D.now.ready) return;
+      if (link.kind === 'youtube') send(D, { event: 'listening', id: 'ikigai-' + D.cfg.id, channel: 'widget' });
+      else for (const ev of ['timeupdate', 'play', 'pause', 'ended']) vm(D, 'addEventListener', ev);
     };
     el.addEventListener('load', hello);
-    now.poll = setInterval(hello, 700);
+    D.now.poll = setInterval(hello, 700);
   }
-  applyVolume();
-  setProjecting(true);
-  status.textContent = 'Máy chiếu đang chiếu lên tường cạnh cửa chính';
-  renderAll();
+  applyVolume(D);
+  D.wantDown = true;
+  status.textContent = `${D.cfg.name} đang phát`;
+  render(D);
 }
 addEventListener('message', (e) => {
-  if (!now || now.link.kind === 'file' || e.origin !== now.link.origin || e.source !== now.el.contentWindow) return;
+  const D = devices.find((x) => x.now && x.now.link.kind !== 'file' && x.now.el.contentWindow === e.source);
+  if (!D || e.origin !== D.now.link.origin) return;
+  const { now } = D;
   let d = e.data;
   if (typeof d === 'string') { try { d = JSON.parse(d); } catch { return; } }
   if (!d || typeof d !== 'object') return;
-  if (!now.ready) { now.ready = true; clearInterval(now.poll); applyVolume(); }
+  if (!now.ready) { now.ready = true; clearInterval(now.poll); applyVolume(D); }
   if (now.link.kind === 'youtube') {
     const i = d.info;
     if (!i || typeof i !== 'object') return;
     if (typeof i.currentTime === 'number') now.time = i.currentTime;
     if (typeof i.duration === 'number' && i.duration > 0) now.duration = i.duration;
     if (i.videoData && typeof i.videoData.title === 'string' && i.videoData.title) now.item.label = i.videoData.title.slice(0, 120);
-    if (i.playerState === 0) return playNext();
+    if (i.playerState === 0) return playNext(D);
     if (i.playerState === 1) now.paused = false; else if (i.playerState === 2) now.paused = true;
   } else {
     const v = d.data && typeof d.data === 'object' ? d.data : {};
-    if (d.event === 'ready') for (const ev of ['timeupdate', 'play', 'pause', 'ended']) vm('addEventListener', ev);
+    if (d.event === 'ready') for (const ev of ['timeupdate', 'play', 'pause', 'ended']) vm(D, 'addEventListener', ev);
     if (typeof v.seconds === 'number') now.time = v.seconds;
     if (typeof v.duration === 'number' && v.duration > 0) now.duration = v.duration;
-    if (d.event === 'ended' || d.event === 'finish') return playNext();
+    if (d.event === 'ended' || d.event === 'finish') return playNext(D);
     if (d.event === 'play') now.paused = false; else if (d.event === 'pause') now.paused = true;
   }
-  renderState();
+  render(D);
 });
 
 function renderState() {
-  $('pm-now').textContent = now ? 'Đang chiếu: ' + now.item.label : 'Chưa chiếu gì';
+  const D = active, { now, queue } = D;
+  $('pm-title').textContent = D.cfg.name;
+  $('pm-now').textContent = now ? 'Đang phát: ' + now.item.label : 'Chưa phát gì';
   $('pm-toggle').textContent = now && !now.paused ? 'Tạm dừng' : 'Phát';
   $('pm-toggle').disabled = !now && !queue.length;
-  for (const id of ['pm-back', 'pm-fwd', 'pm-stop', 'pm-seek']) $(id).disabled = !now;
-  $('pm-skip').disabled = !now;
+  for (const id of ['pm-back', 'pm-fwd', 'pm-stop', 'pm-seek', 'pm-skip']) $(id).disabled = !now;
   $('pm-time').textContent = fmt(now && now.time); $('pm-dur').textContent = fmt(now && now.duration);
   if (!seeking) { $('pm-seek').max = now ? Math.floor(now.duration) : 0; $('pm-seek').value = now ? Math.floor(now.time) : 0; }
-  $('pm-mute').textContent = muted ? 'Bật tiếng' : 'Tắt tiếng';
+  $('pm-mute').textContent = D.muted ? 'Bật tiếng' : 'Tắt tiếng';
+  $('pm-vol').value = Math.round(D.volume * 100);
+  $('pm-sheet').hidden = !D.cfg.sheet;
+  $('pm-sheet').textContent = D.wantDown ? 'Cuốn màn lên' : 'Kéo màn xuống';
 }
 function renderQueue() {
+  const { queue } = active, D = active;
   $('pm-count').textContent = queue.length ? `(${queue.length})` : '';
   $('pm-empty').hidden = queue.length > 0;
   $('pm-queue').replaceChildren(...queue.map((item, i) => {
@@ -554,7 +603,7 @@ function renderQueue() {
     name.textContent = `${i + 1}. ${item.label}`; name.title = item.label;   // textContent: tên video không bao giờ được chèn dưới dạng HTML
     const btn = (text, label, fn) => { const b = document.createElement('button'); b.textContent = text; b.setAttribute('aria-label', label); b.onclick = fn; return b; };
     li.append(name,
-      btn('▶', 'Phát ngay mục ' + (i + 1), () => { queue.splice(i, 1); playItem(item); }),
+      btn('▶', 'Phát ngay mục ' + (i + 1), () => { queue.splice(i, 1); playItem(D, item); }),
       btn('↑', 'Đưa mục ' + (i + 1) + ' lên trước', () => { if (i > 0) { queue.splice(i - 1, 0, queue.splice(i, 1)[0]); renderAll(); } }),
       btn('✕', 'Xoá mục ' + (i + 1), () => { queue.splice(i, 1); renderAll(); }));
     return li;
@@ -562,50 +611,72 @@ function renderQueue() {
 }
 function renderAll() { renderState(); renderQueue(); }
 function addLink(playNow) {
-  const raw = $('pm-url').value.trim();
+  const D = active, raw = $('pm-url').value.trim();
   if (!raw) { $('pm-msg').textContent = 'Hãy dán một link video trước'; return; }
   const link = parseVideoLink(raw);
   if (link.error) { $('pm-msg').textContent = link.error; return; }
   const u = new URL(raw);
   const item = { link, label: (u.hostname.replace(/^www\./, '') + u.pathname + (link.kind === 'youtube' ? u.search : '')).slice(0, 70) };
   $('pm-msg').textContent = ''; $('pm-url').value = '';
-  if (playNow || !now) playItem(item); else { queue.push(item); renderAll(); }
+  if (playNow || !D.now) playItem(D, item); else { D.queue.push(item); renderAll(); }
 }
 $('pm-add').onclick = () => addLink(false);
 $('pm-playnow').onclick = () => addLink(true);
 $('pm-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addLink(false); } });
-$('pm-toggle').onclick = () => { if (now) setPaused(!now.paused); else playNext(); };
-$('pm-back').onclick = () => now && seekTo(now.time - 10);
-$('pm-fwd').onclick = () => now && seekTo(now.time + 10);
-$('pm-skip').onclick = () => playNext('Đã bỏ qua — hết hàng chờ, máy chiếu tắt');
-$('pm-stop').onclick = () => stopProjector('Đã tắt máy chiếu');
+$('pm-toggle').onclick = () => { if (active.now) setPaused(active, !active.now.paused); else playNext(active); };
+$('pm-back').onclick = () => active.now && seekTo(active, active.now.time - 10);
+$('pm-fwd').onclick = () => active.now && seekTo(active, active.now.time + 10);
+$('pm-skip').onclick = () => playNext(active, 'đã bỏ qua — hết hàng chờ, đã tắt');
+$('pm-stop').onclick = () => stopDevice(active, 'đã tắt');
+$('pm-sheet').onclick = () => {   // remote màn cuốn: kéo xuống / cuốn lên; cuốn lên khi đang chiếu thì tắt luôn
+  const D = active;
+  if (D.wantDown) stopDevice(D, D.now ? 'đã tắt, cuốn màn lên' : 'cuốn màn lên'); else { D.wantDown = true; status.textContent = `${D.cfg.name}: kéo màn xuống`; }
+  renderAll();
+};
 $('pm-seek').addEventListener('input', () => { seeking = true; $('pm-time').textContent = fmt(+$('pm-seek').value); });
-$('pm-seek').addEventListener('change', () => { seeking = false; seekTo(+$('pm-seek').value); });
-$('pm-vol').addEventListener('input', () => { volume = $('pm-vol').value / 100; muted = false; applyVolume(); renderState(); });
-$('pm-mute').onclick = () => { muted = !muted; applyVolume(); renderState(); };
+$('pm-seek').addEventListener('change', () => { seeking = false; seekTo(active, +$('pm-seek').value); });
+$('pm-vol').addEventListener('input', () => { active.volume = $('pm-vol').value / 100; active.muted = false; applyVolume(active); renderState(); });
+$('pm-mute').onclick = () => { active.muted = !active.muted; applyVolume(active); renderState(); };
 $('pm-close').onclick = () => modal.close();
 modal.addEventListener('click', (e) => { if (e.target === modal) modal.close(); });   // bấm ra ngoài bảng để đóng
-const openProjector = () => { if (!modal.open) { renderAll(); modal.showModal(); $('pm-url').focus(); } };
-$('proj-open').onclick = openProjector;
+function openDevice(D) {
+  active = D; seeking = false; $('pm-msg').textContent = '';
+  renderAll();
+  if (!modal.open) modal.showModal();
+  $('pm-url').focus();
+}
+for (const D of devices) {
+  const b = document.createElement('button');
+  b.textContent = D.cfg.name + '…'; b.onclick = () => openDevice(D);
+  $('proj').appendChild(b);
+}
 
-// bấm vào máy chiếu trong cảnh 3D để mở bảng: tia từ con trỏ phải chạm vùng quanh máy chiếu và không bị vật khác che phía trước
-const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hitPt = new THREE.Vector3();
-function aimsAtProjector(e, checkOccluders) {
-  if (projHit.isEmpty()) return false;
+// bấm vào thiết bị trong cảnh 3D (máy chiếu, hộp màn / tấm màn, TV) để mở bảng của nó: tia từ con trỏ phải chạm vùng quanh thiết bị và không bị vật khác che phía trước
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hitPt = new THREE.Vector3(), sheetBox = new THREE.Box3();
+function deviceAt(e, checkOccluders) {
   ray.setFromCamera(ndc.set(e.clientX / innerWidth * 2 - 1, 1 - e.clientY / innerHeight * 2), camera);
-  if (!ray.ray.intersectBox(projHit, hitPt)) return false;
-  if (!checkOccluders) return true;
+  let best = null, bestDist = Infinity;
+  for (const D of devices) {
+    const boxes = D.sheet && D.sheet.visible ? [...D.hits, sheetBox.setFromObject(D.sheet).expandByScalar(0.02)] : D.hits;
+    for (const b of boxes) {
+      if (!ray.ray.intersectBox(b, hitPt)) continue;
+      const d = hitPt.distanceTo(camera.position);
+      if (d < bestDist) { best = D; bestDist = d; }
+    }
+  }
+  if (!best || !checkOccluders) return best;
   const first = ray.intersectObject(modelRoot, true)[0];
-  return !first || first.distance > hitPt.distanceTo(camera.position) - 0.1;
+  return !first || first.distance > bestDist - 0.1 ? best : null;
 }
 let downAt = null;
 canvas.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
 canvas.addEventListener('pointerup', (e) => {
   const still = downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 5;   // bấm tại chỗ, không phải kéo xoay camera
   downAt = null;
-  if (still && aimsAtProjector(e, true)) openProjector();
+  const D = still && modelRoot && deviceAt(e, true);
+  if (D) openDevice(D);
 });
-canvas.addEventListener('pointermove', (e) => { if (!dragging) canvas.style.cursor = aimsAtProjector(e, false) ? 'pointer' : ''; });
+canvas.addEventListener('pointermove', (e) => { if (!dragging) canvas.style.cursor = deviceAt(e, false) ? 'pointer' : ''; });
 renderAll();
 
 function resize() {
@@ -615,7 +686,7 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize); resize();
-renderer.setAnimationLoop(() => { step(); renderer.render(scene, camera); if (now) cssRenderer.render(cssScene, camera); });
+renderer.setAnimationLoop(() => { step(); renderer.render(scene, camera); if (devices.some((D) => D.now)) cssRenderer.render(cssScene, camera); });
 </script>
 </body>
 </html>
