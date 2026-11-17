@@ -103,6 +103,97 @@ _nt.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.85
 M["ceil"] = mat("ceil", (0.9, 0.9, 0.9), rough=0.9); M["ceilc"] = mat("ceilc", (0.42, 0.41, 0.4), rough=0.95)
 M["ceil"].use_backface_culling = M["ceilc"].use_backface_culling = True
 
+# vật liệu cho các chi tiết dựng theo ảnh chụp cận cảnh (bàn 3 màn hình, thùng máy RGB, bếp, kệ sách)
+M.update(
+    scr_off=mat("scr_off", (0.012, 0.013, 0.016), rough=0.12), rgb=mat("rgb", (0.0, 0.85, 0.12), emit=1.6), cyanled=mat("cyanled", (0.3, 0.8, 1.0), emit=3.0),
+    pcglass=mat("pcglass", (0.8, 0.95, 0.9), alpha=0.14, rough=0.03), stone=mat("stone", (0.13, 0.11, 0.1), rough=0.55),
+    lime=mat("lime", (0.33, 0.75, 0.1)), dkgreen=mat("dkgreen", (0.02, 0.19, 0.13)), skyblue=mat("skyblue", (0.42, 0.56, 0.76)), colgrey=mat("colgrey", (0.62, 0.64, 0.65), rough=0.9),
+    leather=mat("leather", (0.45, 0.26, 0.11), rough=0.6), coffee=mat("coffee", (0.5, 0.33, 0.18), rough=0.25), leaf=mat("leaf", (0.1, 0.36, 0.1), rough=0.5),
+    silver=mat("silver", (0.8, 0.8, 0.82), rough=0.3, metal=0.8), orange=mat("orange", (0.9, 0.4, 0.08)), gold=mat("gold", (0.8, 0.58, 0.25), rough=0.3, metal=0.9),
+    purple=mat("purple", (0.45, 0.15, 0.6)), bag=mat("bag", (0.6, 0.61, 0.6), rough=0.7), keynavy=mat("keynavy", (0.08, 0.12, 0.26), rough=0.5),
+    gunmetal=mat("gunmetal", (0.27, 0.28, 0.3), rough=0.4, metal=0.5), guitar=mat("guitar", (0.72, 0.48, 0.22), rough=0.3),
+)
+
+# ảnh nhỏ vẽ bằng code (hình trên màn hình, hoạ tiết bảng ghim, tranh) — toạ độ theo tỉ lệ 0–1, gốc ở góc trên trái
+def canvas(w, h, bg):
+    a = np.empty((h, w, 3), np.float32); a[:] = bg
+    return a
+def rect(a, x0, y0, x1, y1, c):
+    h, w = a.shape[:2]; a[round(y0 * h):round(y1 * h), round(x0 * w):round(x1 * w)] = c
+def blob(a, cx, cy, rx, ry, c):
+    h, w = a.shape[:2]; yy, xx = np.mgrid[0:h, 0:w]
+    a[((xx / w - cx) / rx) ** 2 + ((yy / h - cy) / ry) ** 2 < 1] = c
+def tex(name, a, emit=0.0, rough=0.4):
+    h, w = a.shape[:2]
+    px = np.ones((h, w, 4), np.float32); px[..., :3] = a[::-1]
+    img = bpy.data.images.new("tex_" + name, w, h, alpha=False)
+    img.pixels.foreach_set(np.clip(px, 0, 1).ravel())
+    img.filepath_raw, img.file_format = os.path.join(ROOT, "assets", f"tex_{name}.png"), "PNG"
+    img.save()
+    m = M[name] = mat(name, tuple(float(v) for v in a.mean(axis=(0, 1))), rough=rough)
+    nt = m.node_tree; t = nt.nodes.new("ShaderNodeTexImage"); t.image = img; b = nt.nodes["Principled BSDF"]
+    nt.links.new(t.outputs["Color"], b.inputs["Base Color"])
+    if emit:
+        nt.links.new(t.outputs["Color"], b.inputs["Emission Color" if "Emission Color" in b.inputs else "Emission"])
+        b.inputs["Emission Strength"].default_value = emit
+
+def _wallpaper(app):
+    """Hình nền trời xanh + đồi cỏ + 4 chấm màu của bàn 3 màn hình; app=True thêm cửa sổ chat nền tối ở giữa."""
+    a = canvas(320, 180, (0, 0, 0)); h, w = a.shape[:2]; yy, xx = np.mgrid[0:h, 0:w]
+    a[:] = np.array((0.16, 0.5, 0.95)) + (yy / h)[..., None] * np.array((0.3, 0.3, 0.05))
+    a[yy / h > 0.7 - 0.07 * np.cos((xx / w - 0.5) * 3.2)] = (0.3, 0.72, 0.15)
+    for i, c in enumerate(((0.85, 0.1, 0.15), (0.95, 0.85, 0.1), (0.5, 0.88, 0.1), (0.42, 0.18, 0.72))):
+        blob(a, 0.29 + 0.14 * i, 0.55, 0.04, 0.13, c)
+    for i in range(14): blob(a, 0.05 + 0.068 * i, 0.9 + 0.04 * (i % 3 - 1), 0.008, 0.014, ((0.95, 0.3, 0.3), (1, 1, 1), (0.95, 0.85, 0.2))[i % 3])
+    if app:
+        rect(a, 0.2, 0.08, 0.74, 0.84, (0.09, 0.1, 0.13)); rect(a, 0.2, 0.08, 0.74, 0.14, (0.14, 0.15, 0.19)); rect(a, 0.2, 0.14, 0.27, 0.84, (0.06, 0.07, 0.09))
+        for i in range(8):
+            y = 0.19 + i * 0.078
+            blob(a, 0.305, y + 0.02, 0.014, 0.025, ((0.4, 0.7, 0.9), (0.9, 0.6, 0.3), (0.5, 0.8, 0.5))[i % 3])
+            rect(a, 0.34, y, 0.5 + 0.03 * (i % 3), y + 0.02, (0.75, 0.77, 0.8)); rect(a, 0.34, y + 0.03, 0.44, y + 0.045, (0.4, 0.42, 0.46))
+            if i % 2 == 0: rect(a, 0.66, y, 0.72, y + 0.035, (0.2, 0.45, 0.95))
+    return a
+tex("wall_a", _wallpaper(False), emit=1.0); tex("wall_b", _wallpaper(True), emit=1.0)
+_r = np.random.default_rng(4)
+_a = canvas(384, 160, (0.03, 0.06, 0.2)); rect(_a, 0, 0, 0.55, 1, (0.05, 0.06, 0.1)); rect(_a, 0, 0, 0.09, 1, (0.08, 0.09, 0.14)); rect(_a, 0, 0, 1, 0.045, (0.1, 0.1, 0.13))   # màn cong: trình soạn code + terminal
+for i in range(26):
+    x = 0.11 + 0.02 * int(_r.integers(0, 4))
+    rect(_a, x, 0.08 + i * 0.034, x + float(_r.uniform(0.06, 0.3)), 0.096 + i * 0.034, ((0.55, 0.7, 0.95), (0.8, 0.8, 0.82), (0.6, 0.85, 0.6), (0.9, 0.7, 0.45))[int(_r.integers(0, 4))])
+rect(_a, 0.62, 0.2, 0.93, 0.8, (0.04, 0.04, 0.06)); rect(_a, 0.62, 0.2, 0.93, 0.25, (0.2, 0.2, 0.23))
+for i in range(9): rect(_a, 0.64, 0.3 + i * 0.05, 0.64 + float(_r.uniform(0.08, 0.26)), 0.32 + i * 0.05, (0.7, 0.85, 0.7))
+tex("code", _a, emit=1.0)
+_a = canvas(256, 144, (0.97, 0.97, 0.97)); rect(_a, 0, 0, 1, 0.09, (0.9, 0.93, 0.92)); rect(_a, 0.04, 0.02, 0.1, 0.07, (0.1, 0.5, 0.42))   # trang web nền trắng có khung điện thoại
+rect(_a, 0.1, 0.18, 0.3, 0.9, (0.2, 0.2, 0.22)); rect(_a, 0.115, 0.21, 0.285, 0.87, (0.72, 0.74, 0.72)); rect(_a, 0.115, 0.6, 0.285, 0.87, (0.6, 0.47, 0.32)); blob(_a, 0.2, 0.66, 0.06, 0.05, (0.1, 0.6, 0.45))
+for i in range(6): rect(_a, 0.38, 0.22 + i * 0.09, 0.6 + 0.05 * (i % 3), 0.25 + i * 0.09, (0.8, 0.82, 0.82))
+rect(_a, 0.38, 0.8, 0.52, 0.87, (0.1, 0.5, 0.42)); rect(_a, 0, 0.95, 1, 1, (0.85, 0.88, 0.92))
+tex("page", _a, emit=0.9)
+_a = canvas(256, 144, (0.25, 0.6, 0.1))                                                                                                   # hình nền lá xanh + hộp thoại trắng
+for i in range(160): blob(_a, float(_r.uniform(0, 1)), float(_r.uniform(0, 1)), 0.035, 0.06, (float(_r.uniform(0.2, 0.5)), float(_r.uniform(0.55, 0.85)), 0.1))
+rect(_a, 0.13, 0.14, 0.84, 0.86, (0.96, 0.96, 0.96)); rect(_a, 0.13, 0.14, 0.84, 0.2, (0.88, 0.88, 0.9)); blob(_a, 0.17, 0.17, 0.012, 0.02, (0.85, 0.2, 0.2))
+for i in range(2):
+    for j in range(5): rect(_a, 0.2 + i * 0.32, 0.4 + j * 0.05, 0.42 + i * 0.32, 0.42 + j * 0.05, (0.6, 0.6, 0.62))
+rect(_a, 0.2, 0.3, 0.44, 0.34, (0.2, 0.2, 0.2)); rect(_a, 0.3, 0.76, 0.46, 0.83, (0.3, 0.7, 0.75)); rect(_a, 0.56, 0.76, 0.72, 0.83, (0.3, 0.7, 0.75)); rect(_a, 0, 0.95, 1, 1, (0.8, 0.85, 0.9))
+tex("clover", _a, emit=0.9)
+_yy, _xx = np.mgrid[0:384, 0:384] / 384.0                                                                                               # hoạ tiết bảng ghim: ô quả trám xanh navy / trắng kẻ sọc
+_u, _v = (_xx + _yy) * 9, (_xx - _yy) * 9
+_cell = (np.floor(_u) + np.floor(_v)) % 2
+_a = np.where(((_cell == 0) | (np.floor(_u * 6) % 2 == 0))[..., None], np.array((0.07, 0.1, 0.2), np.float32), np.array((0.88, 0.88, 0.86), np.float32))
+tex("pinpat", _a, rough=0.85)
+_a = canvas(96, 144, (0.82, 0.74, 0.55))                                                                                               # tranh dân gian trên trụ pantry: các mảng màu trên nền giấy dó
+for i in range(40):
+    x, y = float(_r.uniform(0.08, 0.8)), float(_r.uniform(0.06, 0.86))
+    rect(_a, x, y, x + float(_r.uniform(0.05, 0.16)), y + float(_r.uniform(0.03, 0.08)), ((0.7, 0.2, 0.15), (0.2, 0.45, 0.3), (0.2, 0.3, 0.55), (0.1, 0.1, 0.1), (0.85, 0.6, 0.2))[i % 5])
+tex("dongho", _a)
+_a = canvas(64, 64, (0.96, 0.96, 0.95)); rect(_a, 0.3, 0.42, 0.38, 0.56, (0.33, 0.75, 0.1)); rect(_a, 0.42, 0.45, 0.72, 0.53, (0.45, 0.47, 0.45)); tex("art_logo", _a)   # khung logo trên kệ
+_a = canvas(64, 64, (0.8, 0.8, 0.8)); rect(_a, 0, 0.6, 1, 1, (0.35, 0.35, 0.35))
+for i in range(5): rect(_a, 0.08 + i * 0.18, 0.25 + 0.07 * (i % 2), 0.2 + i * 0.18, 0.75, (0.25 + 0.08 * i, 0.25 + 0.08 * i, 0.27 + 0.08 * i))
+tex("art_photo", _a)                                                                                                                    # ảnh đen trắng đóng khung
+_a = canvas(64, 96, (0.55, 0.75, 0.95)); rect(_a, 0, 0.8, 1, 1, (0.5, 0.5, 0.48)); rect(_a, 0.46, 0.15, 0.54, 0.62, (0.95, 0.95, 0.95)); blob(_a, 0.5, 0.72, 0.09, 0.12, (1.0, 0.6, 0.15)); blob(_a, 0.5, 0.82, 0.3, 0.07, (0.9, 0.9, 0.9))
+tex("art_rocket", _a)                                                                                                                   # ảnh tên lửa trên nóc kệ mặt xanh dương
+_a = canvas(64, 80, (0.9, 0.9, 0.9)); rect(_a, 0.24, 0.2, 0.76, 0.95, (0.99, 0.99, 0.99)); rect(_a, 0.06, 0.2, 0.24, 0.5, (0.99, 0.99, 0.99)); rect(_a, 0.76, 0.2, 0.94, 0.5, (0.99, 0.99, 0.99))
+rect(_a, 0.4, 0.17, 0.6, 0.26, (0.8, 0.1, 0.1)); rect(_a, 0.06, 0.44, 0.24, 0.5, (0.8, 0.1, 0.1)); rect(_a, 0.76, 0.44, 0.94, 0.5, (0.8, 0.1, 0.1)); rect(_a, 0.6, 0.36, 0.7, 0.44, (0.8, 0.1, 0.1)); rect(_a, 0.44, 0.5, 0.56, 0.68, (0.8, 0.1, 0.1))
+tex("art_jersey", _a)                                                                                                                   # áo đấu trắng viền đỏ đóng khung
+
 def quad(name, x0, y0, x1, y1, z, m, up=True):
     """Tấm phẳng nằm ngang; UV theo toạ độ thế giới (3.2 m / ô ảnh) để vân sàn liền mạch giữa các phòng."""
     me = bpy.data.meshes.new(name); bm = bmesh.new()
@@ -165,8 +256,8 @@ def mesh(shape, m, size=None):
                 f.smooth = len({v in inner for v in f.verts}) == 1
         elif shape == "cpanel":  # tấm đứng uốn cong ôm người ngồi, bo góc: size = (bề ngang, độ cong hai mép về +y, chiều cao)
             bm.clear()
-            w, c, h = size
-            r = min(w, h) * 0.22
+            w, c, h, *rr = size                                  # phần tử thứ 4 (tuỳ chọn): tỉ lệ bán kính bo góc
+            r = min(w, h) * (rr[0] if rr else 0.22)
             rows = []
             ds = [r * t for t in (0, 0.12, 0.35, 0.65, 1)]   # dồn hàng lưới về hai mép để góc bo tròn đều
             for z in [-h / 2 + d for d in ds] + [0] + [h / 2 - d for d in reversed(ds)]:
@@ -176,15 +267,30 @@ def mesh(shape, m, size=None):
             faces = [bm.faces.new((r0[j], r0[j + 1], r1[j + 1], r1[j])) for r0, r1 in zip(rows, rows[1:]) for j in range(8)]
             inner = {v for r_ in rows for v in r_}
             bmesh.ops.solidify(bm, geom=faces, thickness=0.018)
+            uv = bm.loops.layers.uv.new()                       # UV phủ kín tấm theo vị trí (nhìn từ phía +y) để dán hình màn hình cong
             for f in bm.faces:
                 f.smooth = len({v in inner for v in f.verts}) == 1
+                for l in f.loops: l[uv].uv = (0.5 - l.vert.co.x / w, 0.5 + l.vert.co.z / h)
+        elif shape == "pic":  # tấm ảnh đứng 1×1 quay mặt về +y, UV 0–1 (scale theo bề ngang, cao)
+            bm.clear()
+            f = bm.faces.new([bm.verts.new(p) for p in ((0.5, 0, -0.5), (-0.5, 0, -0.5), (-0.5, 0, 0.5), (0.5, 0, 0.5))])
+            uv = bm.loops.layers.uv.new()
+            for l, t in zip(f.loops, ((0, 0), (1, 0), (1, 1), (0, 1))): l[uv].uv = t
+        elif shape == "ball":
+            bm.clear(); bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=0.5)
+            for f in bm.faces: f.smooth = True
+        elif shape == "rslab":  # tấm/khối bo tròn 4 góc đứng: size = (x, y, z, bán kính)
+            for v in bm.verts:
+                v.co.x *= size[0]; v.co.y *= size[1]; v.co.z *= size[2]
+            bmesh.ops.bevel(bm, geom=[e for e in bm.edges if abs(e.verts[0].co.z - e.verts[1].co.z) > 1e-6], offset=size[3], offset_type="OFFSET",
+                            segments=6, profile=0.5, affect="EDGES")
         bm.to_mesh(me); bm.free()
         me.materials.append(M[m])
         _meshes[key] = me
     return _meshes[key]
 
 def part(name, shape, loc, size, m, parent):
-    rb = shape in ("rbox", "shell", "cpanel", "tbox")
+    rb = shape in ("rbox", "shell", "cpanel", "tbox", "rslab")
     o = bpy.data.objects.new(name, mesh(shape, m, tuple(size) if rb else None))
     o.location, o.scale, o.parent = loc, ((1, 1, 1) if rb else size), parent
     scene.collection.objects.link(o)
@@ -192,6 +298,10 @@ def part(name, shape, loc, size, m, parent):
 
 def box(name, loc, size, m):  # khối đơn ở toạ độ thế giới
     return part(name, "box", loc, size, m, floor_root)
+
+def pic(name, loc, w, h, m, rz=0):  # tấm ảnh đứng ở toạ độ thế giới, mặt quay về +y rồi xoay rz độ quanh trục đứng
+    o = part(name, "pic", loc, (w, 1, h), m, floor_root); o.rotation_euler.z = math.radians(rz)
+    return o
 
 def place(name, parts, x, y, rot=0, z=0):
     """Đặt 1 asset: parts = [(shape, (x,y,z), (sx,sy,sz), mat)] theo toạ độ cục bộ."""
@@ -277,10 +387,70 @@ WING_CHAIR = [("box", (0, 0.02, 0.44), (0.5, 0.62, 0.09), "velvet", (5, 0, 0)), 
               for sx in (-1, 1) for sy in (-1, 1) for sd in (-1, 1)]
 SIDE_TABLE = [("cyl", (0, 0, 0.44), (0.45, 0.45, 0.015), "glass"), ("cyl", (0, 0, 0.22), (0.03, 0.03, 0.44), "black"),
               ("cyl", (0, 0, 0.01), (0.3, 0.3, 0.02), "black")]
-BOOKSHELF = [("box", (0, 0, 1.4), (0.6, 0.6, 2.8), "teal"), ("box", (0, 0, 0.4), (1.7, 1.0, 0.8), "wood")] \
-    + [("box", (0, 0, z), (1.7, 1.0, 0.04), "wood") for z in (1.3, 1.8, 2.3)] \
-    + [("box", (sx * (0.45 + 0.1 * i), 0.3 * sy, z + 0.14), (0.08, 0.2, 0.26), c)
-       for z in (0.8, 1.3, 1.8) for sx in (-1, 1) for sy in (-1, 1) for i, c in enumerate(("red", "blue", "yellow", "white"))]
+def bookshelf_parts():
+    """Cột kệ sách (theo video đi vòng quanh cột): lõi cột 0.8 m cao tới trần, mỗi mặt một màu — bắc xanh dương, tây xanh rêu, nam xanh lá (trên cùng treo khung áo đấu),
+    đông để xám + dải hoạ tiết + xà đơn gắn tường. Tủ gỗ bo góc và 4 tầng kệ ôm 3 mặt bắc–tây–nam."""
+    rnd = random.Random(5)
+    COL = ("red", "navy", "white", "yellow", "teal", "pink", "dark", "cream", "blue", "green", "white", "dark")
+    P = [("box", (0, 0, HC / 2), (0.8, 0.8, HC), "colgrey"),
+         ("box", (0, 0.403, (0.9 + HC) / 2), (0.8, 0.008, HC - 0.9), "skyblue"), ("box", (-0.403, 0, (0.9 + HC) / 2), (0.008, 0.8, HC - 0.9), "dkgreen"),
+         ("box", (0, -0.403, 1.75), (0.8, 0.008, 1.7), "lime"), ("box", (0, -0.403, (2.6 + HC) / 2), (0.8, 0.008, HC - 2.6), "dkgreen"),
+         ("box", (-0.404, 0.404, (0.9 + HC) / 2), (0.02, 0.02, HC - 0.9), "yellow"),                                  # nẹp vàng ở góc tây-bắc
+         ("rslab", (-0.16, 0, 0.45), (1.12, 1.44, 0.9, 0.12), "wood"),                                                # tủ đế bo góc
+         ("box", (-0.722, -0.24, 0.45), (0.004, 0.006, 0.82), "darkwood"), ("box", (-0.722, 0.24, 0.45), (0.004, 0.006, 0.82), "darkwood"),
+         ("box", (-0.16, 0.722, 0.45), (0.006, 0.004, 0.82), "darkwood"), ("box", (-0.16, -0.722, 0.45), (0.006, 0.004, 0.82), "darkwood")]
+    L = [0.9] + [z + 0.0175 for z in (1.3, 1.7, 2.1, 2.5)]                                                            # cao độ mặt đặt sách từng tầng
+    P += [("rslab", (-0.16, 0, z - 0.0175), (1.12, 1.44, 0.035, 0.12), "wood") for z in L[1:]]
+    def row(x, y, z, ax, n):       # n cuốn dựng gáy, xếp dọc trục ax
+        for _ in range(n):
+            t, h, d = rnd.uniform(0.022, 0.045), rnd.uniform(0.2, 0.3), rnd.uniform(0.15, 0.2)
+            if ax == "x": P.append(("box", (x + t / 2, y, z + h / 2), (t, d, h), rnd.choice(COL))); x += t + 0.002
+            else: P.append(("box", (x, y + t / 2, z + h / 2), (d, t, h), rnd.choice(COL))); y += t + 0.002
+    def stack(x, y, z, n, w=0.2, d=0.27, rz=0):   # n cuốn nằm chồng lên nhau
+        for _ in range(n):
+            t = rnd.uniform(0.02, 0.04)
+            P.append(("box", (x + rnd.uniform(-0.01, 0.01), y + rnd.uniform(-0.01, 0.01), z + t / 2), (w, d, t), rnd.choice(COL), rz + rnd.uniform(-6, 6))); z += t
+    def frame(x, y, z, w, h, face, art):          # khung tranh đen dựng đứng, mặt quay ra theo face
+        if face == "W": P.extend([("box", (x, y, z + h / 2), (0.02, w, h), "black"), ("pic", (x - 0.011, y, z + h / 2), (w - 0.05, 1, h - 0.05), art, 90)])
+        else:
+            sg = 1 if face == "N" else -1
+            P.extend([("box", (x, y, z + h / 2), (w, 0.02, h), "black"), ("pic", (x, y + sg * 0.011, z + h / 2), (w - 0.05, 1, h - 0.05), art, 0 if sg > 0 else 180)])
+    # mặt bắc (xanh dương): hộp board game, sách, khung ảnh + bằng khen, bình gốm, ảnh tên lửa trên nóc
+    stack(-0.15, 0.56, L[0], 4, w=0.3, d=0.26); stack(0.22, 0.56, L[0], 3, w=0.2, d=0.24)
+    row(-0.36, 0.56, L[1], "x", 7); stack(0.14, 0.56, L[1], 5, w=0.26, d=0.22)
+    frame(-0.2, 0.47, L[2], 0.24, 0.3, "N", "art_logo"); frame(0.12, 0.5, L[2], 0.32, 0.3, "N", "art_photo"); P.append(("ball", (0.33, 0.6, L[2] + 0.05), (0.12, 0.12, 0.1), "black"))
+    row(-0.36, 0.56, L[3], "x", 9); P.append(("ball", (0.26, 0.56, L[3] + 0.09), (0.16, 0.16, 0.18), "white"))
+    frame(0, 0.45, L[4], 0.42, 0.6, "N", "art_rocket")
+    # mặt tây (xanh rêu)
+    stack(-0.56, -0.42, L[0], 5); stack(-0.56, -0.08, L[0], 4); row(-0.56, 0.18, L[0], "y", 8)
+    stack(-0.56, -0.45, L[1], 4); row(-0.56, -0.22, L[1], "y", 10); stack(-0.56, 0.45, L[1], 3)
+    P.append(("box", (-0.5, -0.47, L[2] + 0.15), (0.03, 0.22, 0.3), "red")); row(-0.56, -0.28, L[2], "y", 9); frame(-0.47, 0.45, L[2], 0.22, 0.28, "W", "art_photo")
+    row(-0.56, -0.6, L[3], "y", 8); stack(-0.56, 0.25, L[3], 3)
+    # mặt nam (xanh lá): khung logo, sách, khung áo đấu phía trên
+    stack(-0.2, -0.56, L[0], 5, rz=90); row(0, -0.56, L[0], "x", 8)
+    stack(-0.2, -0.56, L[1], 4, rz=90); stack(0.16, -0.56, L[1], 5, rz=90)
+    frame(-0.15, -0.48, L[2], 0.3, 0.34, "S", "art_logo"); row(0.08, -0.56, L[2], "x", 7)
+    row(-0.36, -0.56, L[3], "x", 6); frame(0.2, -0.48, L[3], 0.2, 0.26, "S", "art_photo")
+    frame(0, -0.418, 2.62, 0.6, 0.72, "S", "art_jersey")
+    # mặt đông: dải hoạ tiết + móc treo, xà đơn gắn tường (tấm gá, 2 tay đỡ có thanh chống, xà ngang bọc mút cam)
+    P += [("pic", (0.4015, -0.22, 1.05 + 0.3 * i), (0.3, 1, 0.3), "pinpat", -90) for i in range(5)]
+    P += [("box", (0.42, dy, 1.5), (0.04, 0.02, 0.08), "black") for dy in (-0.28, -0.16)]
+    P += [("box", (0.415, -0.05, 2.3), (0.03, 0.56, 0.5), "black"), ("cyl", (0.87, -0.05, 2.5), (0.035, 0.035, 1.0), "black", (90, 0, 0))]
+    for sy in (-1, 1):
+        P += [("box", (0.65, -0.05 + sy * 0.26, 2.5), (0.46, 0.04, 0.04), "black"), ("box", (0.62, -0.05 + sy * 0.26, 2.31), (0.52, 0.03, 0.03), "black", (0, 38, 0)),
+              ("cyl", (0.87, -0.05 + sy * 0.4, 2.5), (0.045, 0.045, 0.14), "orange", (90, 0, 0)), ("cyl", (0.6, -0.05 + sy * 0.26, 2.12), (0.04, 0.04, 0.2), "orange", (0, 90, 0))]
+    return P
+# cây lá to trong chậu sứ trắng; đàn guitar trên giá (mặt đàn quay về +y); đôn sứ trắng
+PLANT = [("cyl", (0, 0, 0.015), (0.42, 0.42, 0.03), "cream"), ("cyl", (0, 0, 0.21), (0.34, 0.34, 0.36), "white"), ("cyl", (0, 0, 0.95), (0.03, 0.03, 1.15), "oak")] + [
+    ("ball", ((0.15 + 0.03 * (i % 3)) * math.cos(i * 2.4), (0.15 + 0.03 * (i % 3)) * math.sin(i * 2.4), 1.1 + 0.065 * i), (0.36, 0.26, 0.03), "leaf", (0, -22 - 6 * (i % 3), math.degrees(i * 2.4))) for i in range(11)]
+GUITAR = [("cyl", (0, 0, 0.3), (0.36, 0.36, 0.1), "guitar", (90, 0, 0)), ("cyl", (0, 0, 0.52), (0.27, 0.27, 0.1), "guitar", (90, 0, 0)), ("cyl", (0, 0.052, 0.45), (0.09, 0.09, 0.004), "black", (90, 0, 0)),
+          ("box", (0, 0.02, 0.86), (0.05, 0.025, 0.5), "darkwood"), ("box", (0, 0.02, 1.15), (0.07, 0.025, 0.11), "oak"), ("box", (0, -0.09, 0.2), (0.02, 0.02, 0.45), "black", (-15, 0, 0)),
+          ("box", (-0.12, 0, 0.06), (0.02, 0.3, 0.02), "black"), ("box", (0.12, 0, 0.06), (0.02, 0.3, 0.02), "black")]
+CERAMIC_STOOL = [("cyl", (0, 0, 0.035), (0.33, 0.33, 0.07), "cream"), ("cyl", (0, 0, 0.23), (0.32, 0.32, 0.34), "white"), ("cyl", (0, 0, 0.415), (0.27, 0.27, 0.03), "white")]
+# máy chiếu trên chân đứng: đế tròn, trụ, ngàm chữ U, thân hộp bo góc, ống kính quay về +y
+PROJECTOR = [("cyl", (0, 0, 0.01), (0.36, 0.36, 0.02), "black"), ("cyl", (0, 0, 0.33), (0.035, 0.035, 0.62), "gunmetal"), ("box", (0, 0, 0.66), (0.27, 0.05, 0.03), "gunmetal"),
+             ("box", (-0.125, 0, 0.74), (0.015, 0.05, 0.16), "gunmetal"), ("box", (0.125, 0, 0.74), (0.015, 0.05, 0.16), "gunmetal"),
+             ("rslab", (0, 0, 0.78), (0.22, 0.24, 0.17, 0.03), "gunmetal"), ("box", (0, 0.121, 0.78), (0.16, 0.004, 0.1), "black"), ("cyl", (0.04, 0.125, 0.79), (0.06, 0.06, 0.012), "scr_off", (90, 0, 0))]
 # TV 65" trên chân đẩy: trụ nâng + hộp điều khiển, đế 4 càng chữ X có bánh xe (kiểu chân ghế xoay); màn hình quay về +y
 TV = [("box", (0, 0.06, 1.35), (1.45, 0.04, 0.83), "black"), ("box", (0, 0.062, 0.93), (1.45, 0.04, 0.012), "metal"),  # màn hình + viền bạc dưới
       ("box", (0, 0.02, 1.35), (0.5, 0.04, 0.35), "black"),                                    # tấm gá sau màn hình
@@ -351,38 +521,119 @@ def wall(name, x1, y1, x2, y2, kind="wall", inside=(0, 0), bays=None, punched=Fa
 # bàn làm việc 4 chỗ (dài theo x cục bộ): mặt gỗ sồi trên khung thép đen, máng đi dây giữa gầm, 2 nắp ổ điện trên mặt;
 # mỗi chỗ 2 màn hình, mỗi màn một chân đế riêng (kiểu A: 2 màn ngang chụm vào nhau; kiểu B: 1 màn cong siêu rộng + 1 màn dọc), bàn phím + chuột
 TL, TD = 2.36, 1.2
-def _monitor(x, sd, w, h, ang, z=1.0):
-    """Một màn hình có chân đế riêng, tim x (cục bộ), quay mặt về phía người ngồi (sd=±1 là cạnh bàn có người ngồi), xoay ang độ quanh trục đứng."""
+def _monitor(x, sd, w, h, ang, z=1.0, scr=None, body="black", stand="sq", y=None):
+    """Một màn hình có chân đế riêng, tim x (cục bộ), quay mặt về phía người ngồi (sd=±1 là cạnh bàn có người ngồi), xoay ang độ quanh trục đứng.
+    scr: None = đang tắt, "on" = đang bật (mảng màu), hoặc tên vật liệu ảnh; stand: sq (đế vuông) | arc (đế vòng cung bạc)."""
     r = math.radians(ang); nx, ny = -sd * math.sin(r), sd * math.cos(r)   # pháp tuyến mặt màn
-    y = sd * 0.2
-    return [("box", (x - nx * 0.07, y - ny * 0.07, 0.756), (0.22, 0.17, 0.012), "black", ang),                 # đế
-            ("box", (x - nx * 0.03, y - ny * 0.03, (0.76 + z) / 2), (0.045, 0.03, z - 0.76), "black", ang),    # cổ chân
-            ("box", (x, y, z), (w, 0.025, h), "black", ang),
-            ("box", (x + nx * 0.014, y + ny * 0.014, z), (w - 0.03, 0.004, h - 0.03), "scr", ang),
-            ("box", (x + nx * 0.017 - sd * math.cos(r) * w * 0.14, y + ny * 0.017 - sd * math.sin(r) * w * 0.14, z + h * 0.05), (w * 0.55, 0.003, h * 0.7), "scr_hi", ang),
-            ("box", (x + nx * 0.017 + sd * math.cos(r) * w * 0.3, y + ny * 0.017 + sd * math.sin(r) * w * 0.3, z - h * 0.2), (w * 0.2, 0.003, h * 0.25), "scr_acc", ang)]
-def _seat(x0, sd, kind):
-    # người ngồi ở cạnh sd nhìn về tâm bàn: tay phải của họ nằm về phía -sd theo trục x cục bộ
-    parts = [("box", (x0 + sd * 0.05, sd * 0.45, 0.76), (0.42, 0.14, 0.02), "dark"), ("rbox", (x0 - sd * 0.3, sd * 0.45, 0.765), (0.065, 0.11, 0.03), "black")]   # bàn phím + chuột
-    if kind == "A":
-        parts += _monitor(x0 - 0.285, sd, 0.55, 0.33, -sd * 9) + _monitor(x0 + 0.285, sd, 0.55, 0.33, sd * 9)
+    ax, ay = math.cos(r), math.sin(r)                                     # phương bề ngang màn
+    y = sd * 0.2 if y is None else y
+    P = [("box", (x, y, z), (w, 0.022, h), body, ang),
+         ("box", (x + nx * 0.011, y + ny * 0.011, z), (w - 0.004, 0.003, h - 0.004), "black", ang)]              # mặt kính viền mỏng
+    if scr is None:
+        P.append(("box", (x + nx * 0.0135, y + ny * 0.0135, z + 0.004), (w - 0.014, 0.002, h - 0.022), "scr_off", ang))
+    elif scr == "on":
+        P += [("box", (x + nx * 0.014, y + ny * 0.014, z), (w - 0.03, 0.004, h - 0.03), "scr", ang),
+              ("box", (x + nx * 0.017 - sd * ax * w * 0.14, y + ny * 0.017 - sd * ay * w * 0.14, z + h * 0.05), (w * 0.55, 0.003, h * 0.7), "scr_hi", ang),
+              ("box", (x + nx * 0.017 + sd * ax * w * 0.3, y + ny * 0.017 + sd * ay * w * 0.3, z - h * 0.2), (w * 0.2, 0.003, h * 0.25), "scr_acc", ang)]
     else:
-        parts += _monitor(x0 - sd * 0.17, sd, 0.78, 0.34, -sd * 4) + _monitor(x0 + sd * 0.41, sd, 0.32, 0.54, sd * 14, z=1.06)
-    return parts
+        P.append(("pic", (x + nx * 0.0135, y + ny * 0.0135, z + 0.004), (w - 0.014, 1, h - 0.022), scr, ang + (0 if sd > 0 else 180)))
+    if stand == "arc":   # đế vòng cung: lưng cung nằm sau màn, hai đầu vươn về phía người ngồi
+        R = 0.19
+        for t in (-60, -30, 0, 30, 60):
+            tr = math.radians(t); k, m = R * math.sin(tr), R * (1 - math.cos(tr)) - 0.1
+            P.append(("box", (x + ax * k + nx * m, y + ay * k + ny * m, 0.756), (0.105, 0.03, 0.012), "silver", ang + sd * t))
+        P.append(("box", (x - nx * 0.06, y - ny * 0.06, (0.76 + z) / 2), (0.04, 0.07, z - 0.76), "white", ang))
+    else:
+        P += [("box", (x - nx * 0.06, y - ny * 0.06, 0.756), (0.2, 0.17, 0.012), "black", ang),                   # đế
+              ("box", (x - nx * 0.025, y - ny * 0.025, (0.76 + z) / 2), (0.04, 0.025, z - 0.76), "black", ang)]  # cổ chân
+    return P
+def _curved(x, sd, w, h, z=1.0, scr="scr_off"):
+    """Màn cong siêu rộng (bán kính ~1.5 m) trên chân chữ V, hai mép cong về phía người ngồi."""
+    c, rot, y = w * w / 12, (0 if sd > 0 else 180), sd * 0.17
+    return [("cpanel", (x, y, z), (w, c, h, 0.05), "black", rot),
+            ("cpanel", (x, y + sd * 0.02, z + 0.004), (w - 0.016, c * ((w - 0.016) / w) ** 2, h - 0.024, 0.03), scr, rot),
+            ("box", (x, y - sd * 0.03, (0.76 + z) / 2), (0.05, 0.03, z - 0.76), "black")] + [
+            ("box", (x + s * 0.12, y + sd * 0.04, 0.757), (0.32, 0.035, 0.014), "black", s * sd * 35) for s in (-1, 1)]
+def _kbm(x, sd, body="dark", keys="black", w=0.42, y=0.45):
+    # người ngồi ở cạnh sd nhìn về tâm bàn: tay phải của họ nằm về phía -sd theo trục x cục bộ
+    return [("box", (x + sd * 0.05, sd * y, 0.757), (w, 0.14, 0.014), body), ("box", (x + sd * 0.05, sd * (y - 0.006), 0.7655), (w - 0.02, 0.105, 0.004), keys),
+            ("rbox", (x - sd * 0.3, sd * y, 0.765), (0.065, 0.11, 0.03), "black")]
+def _fan(x, y, z, axis):
+    """Quạt RGB 12 cm: khung trắng, vòng sáng xanh lá, củ quạt trắng; axis = trục quay."""
+    rot = {"x": (0, 90, 0), "y": (90, 0, 0), "z": (0, 0, 0)}[axis]
+    fr = {"x": (0.025, 0.115, 0.115), "y": (0.115, 0.025, 0.115), "z": (0.115, 0.115, 0.025)}[axis]
+    return [("box", (x, y, z), fr, "white"), ("cyl", (x, y, z), (0.1, 0.1, 0.028), "rgb", rot), ("cyl", (x, y, z), (0.04, 0.04, 0.031), "white", rot)]
+def pc_case(cx, cy, z0=0.75):
+    """Thùng máy trắng 2 khoang kiểu bể cá: kính mặt chính quay về +y, kính mặt trước quay về -x; bên trong quạt RGB xanh lá, tản nước, card đồ hoạ trắng; camera an ninh trên nóc."""
+    P = [("cyl", (sx * 0.18, sy * 0.1, 0.01), (0.03, 0.03, 0.02), "white") for sx in (-1, 1) for sy in (-1, 1)] + [
+        ("box", (0, 0, 0.035), (0.44, 0.28, 0.03), "white"), ("box", (0, 0, 0.47), (0.44, 0.28, 0.02), "white"),       # đáy + nóc
+        ("box", (0, -0.1, 0.25), (0.44, 0.08, 0.41), "white"), ("box", (0.213, 0.04, 0.25), (0.014, 0.2, 0.41), "white"),   # khoang sau + mặt hậu
+        ("box", (0, 0.138, 0.25), (0.43, 0.004, 0.41), "pcglass"), ("box", (-0.218, 0.04, 0.25), (0.004, 0.2, 0.41), "pcglass"),
+        ("box", (0.05, -0.055, 0.27), (0.26, 0.008, 0.28), "dark"),                                                    # bo mạch chủ
+        ("box", (-0.01, 0.04, 0.445), (0.38, 0.13, 0.028), "white"),                                                   # két tản nước trên nóc
+        ("box", (0, 0.06, 0.2), (0.3, 0.045, 0.12), "white")] + [                                                      # card đồ hoạ dựng đứng
+        ("cyl", (dx, 0.084, 0.2), (0.08, 0.08, 0.006), "bag", (90, 0, 0)) for dx in (-0.1, 0, 0.1)] + [
+        ("cyl", (0.06, -0.02, 0.33), (0.065, 0.065, 0.05), "white", (90, 0, 0)), ("cyl", (0.06, -0.018, 0.33), (0.045, 0.045, 0.05), "cyanled", (90, 0, 0)),   # block tản nước CPU
+        ("box", (-0.02, -0.04, 0.33), (0.035, 0.03, 0.12), "cyanled"),                                                 # RAM
+        ("cyl", (0.045, -0.02, 0.395), (0.012, 0.012, 0.08), "white"), ("cyl", (0.075, -0.02, 0.395), (0.012, 0.012, 0.08), "white"),
+        ("cyl", (0.08, 0, 0.495), (0.085, 0.085, 0.03), "white"), ("ball", (0.08, 0, 0.55), (0.085, 0.085, 0.085), "white"),   # camera an ninh
+        ("cyl", (0.08, 0.04, 0.552), (0.04, 0.04, 0.012), "black", (90, 0, 0)),
+        ("box", (-0.14, 0, 0.485), (0.08, 0.07, 0.01), "black"), ("box", (-0.14, -0.02, 0.54), (0.07, 0.01, 0.12), "black", (-18, 0, 0))]   # giá điện thoại
+    P += _fan(0.19, 0.04, 0.36, "x")
+    for dx in (-0.1, 0.02, 0.14): P += _fan(dx, 0.04, 0.418, "z") + _fan(dx, 0.04, 0.065, "z")
+    for dz in (0.135, 0.25, 0.365): P += _fan(-0.185, 0.04, dz, "x")
+    return [(s, (l[0] + cx, l[1] + cy, l[2] + z0), *rest) for s, l, *rest in P]
+def _seat(x0, sd, kind):
+    """Đồ trên một chỗ ngồi. A: 2 màn ngang · B: màn cong + màn dọc · C: màn cong đang mở code · P: thùng máy trắng + 2 màn trắng đế cung ·
+    U: 3 màn hình (bàn của chủ nhà) · M: 1 màn + Mac mini (chỗ cạnh bàn 3 màn). Chữ thường = màn hình đang bật."""
+    on = "on" if kind.islower() else None; kind = kind.upper()
+    e, r = (-1 if x0 < 0 else 1), -sd      # e: phía đầu bàn, r: phía tay phải người ngồi (theo trục x cục bộ)
+    if kind == "A":
+        return _kbm(x0, sd) + _monitor(x0 - 0.285, sd, 0.55, 0.33, -sd * 9, scr=on) + _monitor(x0 + 0.285, sd, 0.55, 0.33, sd * 9, scr=on)
+    if kind == "B":
+        return _kbm(x0, sd) + _curved(x0 - sd * 0.17, sd, 0.78, 0.34) + _monitor(x0 + sd * 0.41, sd, 0.32, 0.54, sd * 14, z=1.06, scr=on)
+    if kind == "C":
+        return _kbm(x0 + e * 0.09, sd) + _curved(x0 + e * 0.09, sd, 0.82, 0.35, scr="code")
+    if kind == "P":
+        return (_kbm(x0 - e * 0.3, sd) + pc_case(x0 + e * 0.36, sd * 0.05)
+                + _monitor(x0 - e * 0.02, sd, 0.54, 0.32, e * sd * 8, scr="clover", body="white", stand="arc")
+                + _monitor(x0 - e * 0.56, sd, 0.54, 0.32, -e * sd * 8, scr="page", body="white", stand="arc"))
+    if kind == "M":
+        return _kbm(x0 + e * 0.2, sd) + _monitor(x0 + e * 0.22, sd, 0.6, 0.35, 0) + [
+            ("rbox", (x0 - e * 0.27, sd * 0.3, 0.768), (0.13, 0.13, 0.036), "silver"),                                 # Mac mini
+            ("box", (x0 - e * 0.27, sd * 0.1, 0.765), (0.2, 0.15, 0.03), "white", 8), ("box", (x0 - e * 0.27, sd * 0.1, 0.792), (0.19, 0.14, 0.024), "red", -5)]
+    # U — 3 màn hình xếp vòng cung: màn giữa thẳng, 2 màn bên gập 38° ôm người ngồi; bàn phím xanh navy, chuột đứng trên lót tròn, cốc cà phê đá
+    ux, d = x0 - e * 0.07, 0.13
+    P = _monitor(ux, sd, 0.56, 0.33, 0, z=1.02, scr="wall_b", y=sd * d)
+    for s in (-1, 1):
+        P += _monitor(ux + s * 0.5, sd, 0.56, 0.33, s * sd * 38, scr="wall_a", y=sd * (d + 0.172))
+    P += [("box", (ux, sd * 0.47, 0.757), (0.36, 0.125, 0.014), "keynavy"), ("box", (ux, sd * 0.465, 0.7655), (0.34, 0.095, 0.004), "navy"),
+          ("cyl", (ux + r * 0.34, sd * 0.47, 0.752), (0.22, 0.22, 0.004), "velvet"),                                   # lót chuột tròn
+          ("rbox", (ux + r * 0.34, sd * 0.47, 0.79), (0.06, 0.085, 0.07), "velvet", (0, r * 20, 0)),                   # chuột đứng
+          ("cyl", (ux + r * 0.37, sd * 0.33, 0.752), (0.1, 0.1, 0.004), "leather"),                                    # lót cốc
+          ("cyl", (ux + r * 0.37, sd * 0.33, 0.819), (0.085, 0.085, 0.13), "coffee"), ("cyl", (ux + r * 0.37, sd * 0.33, 0.888), (0.09, 0.09, 0.01), "white"),
+          ("cyl", (ux + r * 0.375, sd * 0.33, 0.93), (0.008, 0.008, 0.09), "green", (0, 8, 0)),                        # ống hút
+          ("box", (ux + e * 0.02, sd * 0.27, 0.762), (0.21, 0.15, 0.024), "red", 4), ("box", (ux + e * 0.02, sd * 0.27, 0.785), (0.2, 0.14, 0.022), "white", -3),   # chồng sách trước chân màn giữa
+          ("box", (ux + e * 0.02, sd * 0.27, 0.806), (0.19, 0.13, 0.02), "dark", 6),
+          ("box", (ux - e * 0.2, sd * 0.3, 0.775), (0.05, 0.03, 0.05), "silver"),                                      # giá điện thoại
+          ("box", (e * (TL / 2 - 0.04), sd * (TD / 2 + 0.012), 0.7), (0.035, 0.02, 0.05), "black")]                    # móc treo ở góc bàn
+    return P
 def work_table_parts(kinds):
     return [("rbox", (0, 0, 0.735), (TL, TD, 0.03), "oak")] + [("box", (sx * (TL / 2 - 0.06), sy * (TD / 2 - 0.06), 0.36), (0.06, 0.06, 0.72), "black") for sx in (-1, 1) for sy in (-1, 1)] + [
         ("box", (0, sy * (TD / 2 - 0.06), 0.695), (TL - 0.18, 0.04, 0.05), "black") for sy in (-1, 1)] + [("box", (sx * (TL / 2 - 0.06), 0, 0.695), (0.04, TD - 0.18, 0.05), "black") for sx in (-1, 1)] + [
-        ("box", (0, 0, 0.62), (TL - 0.5, 0.2, 0.06), "black")] + [("box", (sx * 0.55, 0, 0.752), (0.3, 0.12, 0.004), "metal") for sx in (-1, 1)] + [
+        ("box", (0, 0, 0.62), (TL - 0.5, 0.2, 0.06), "black"), ("box", (0, 0, 0.3), (0.03, TD - 0.4, 0.6), "black")] + [   # máng đi dây + tấm chân giữa gầm bàn
+        ("box", (sx * 0.55, 0, 0.752), (0.3, 0.12, 0.004), "metal") for sx in (-1, 1)] + [
         p for (sx, sd), k in zip(((-1, -1), (1, -1), (-1, 1), (1, 1)), kinds) for p in _seat(sx * TL / 4, sd, k)]
-WORK_TABLES = [work_table_parts(k) for k in ("AABA", "ABAA", "BAAB")]
+WORK_TABLES = [work_table_parts(k) for k in ("AaBA", "ABAA", "BAaB")]
+USER_CHAIR = WORK_CHAIR + [("rbox", (0, 0.02, 0.54), (0.4, 0.38, 0.08), "leather")]   # ghế của bàn 3 màn hình: có thêm đệm da nâu
 _wt = [0]
 
-def work_table(name, cx, cy, rot=0):
-    """Một bàn 4 chỗ + 4 ghế lưới (2 ghế mỗi cạnh dài)."""
+def work_table(name, cx, cy, rot=0, kinds=None, chairs={}):
+    """Một bàn 4 chỗ + 4 ghế lưới (2 ghế mỗi cạnh dài). kinds: kiểu từng chỗ theo thứ tự (-x,-y) (+x,-y) (-x,+y) (+x,+y) (xem _seat); chairs: {chỗ: ghế riêng}."""
     _wt[0] += 1
-    place(name, WORK_TABLES[_wt[0] % 3], cx, cy, rot)
+    place(name, work_table_parts(kinds) if kinds else WORK_TABLES[_wt[0] % 3], cx, cy, rot)
     for i, (sx, sd) in enumerate(((-1, -1), (1, -1), (-1, 1), (1, 1))):
-        place(f"{name}.chair{i}", WORK_CHAIR_W if (i + _wt[0] * 3) % 9 == 0 else WORK_CHAIR, *off(cx, cy, rot, sx * TL / 4 + (0.06 if i % 2 else -0.05), sd * (TD / 2 + 0.38)), rot + (0 if sd < 0 else 180) + (12 if i == 1 else -8 if i == 2 else 0))
+        place(f"{name}.chair{i}", chairs.get(i, WORK_CHAIR_W if (i + _wt[0] * 3) % 9 == 0 else WORK_CHAIR), *off(cx, cy, rot, sx * TL / 4 + (0.06 if i % 2 else -0.05), sd * (TD / 2 + 0.38)), rot + (0 if sd < 0 else 180) + (12 if i == 1 else -8 if i == 2 else 0))
 
 def off(x, y, rot, dx, dy):  # điểm lệch (dx,dy) cục bộ sau khi xoay
     r = math.radians(rot)
@@ -423,8 +674,14 @@ wall("Win.E", X1, 0, X1, YM - 3.4, "window", (-1, 0), punched=True)
 part("Column.S", "tbox", (CSX, 0.35, HC / 2), (1.2, 0.7, HC), "wall", floor_root)                       # cột nhô vào phòng từ tường nam
 box("Board.frame", (CSX, 0.71, 1.5), (0.94, 0.02, 1.3), "grey"); box("Board.white", (CSX, 0.725, 1.5), (0.88, 0.012, 1.24), "white")   # tranh/bảng treo mặt bắc cột, quay về dãy bàn
 wall("Exit.wall", X1, YM - 3.4, X1, YM)                                 # tường đặc: cửa EXIT + bảng ghim, kệ sách đứng phía trước
-box("Pin.frame", (X1 - 0.06, YM - 2.2, 1.7), (0.02, 1.0, 1.25), "wood"); box("Pin.board", (X1 - 0.075, YM - 2.2, 1.7), (0.012, 0.92, 1.17), "tile")   # bảng ghim hoạ tiết xanh giữa cửa EXIT và kệ sách
-box("Pin.note", (X1 - 0.083, YM - 2.35, 1.6), (0.006, 0.22, 0.3), "white"); box("Pin.flag", (X1 - 0.083, YM - 2.05, 1.95), (0.006, 0.24, 0.24), "navy"); place("D2.exit", EXIT_DOOR, X1 - 0.06, YM - 0.95, 90)
+PB = YM - 2.35                          # tim bảng ghim (theo ảnh: bảng lớn khung gỗ, vải hoạ tiết xanh navy, cờ đuôi nheo + ảnh ghim lên)
+box("Pin.frame", (X1 - 0.065, PB, 1.55), (0.03, 1.5, 1.6), "wood"); pic("Pin.board", (X1 - 0.0815, PB, 1.55), 1.42, 1.52, "pinpat", 90)
+box("Pin.flag", (X1 - 0.086, PB + 0.12, 1.95), (0.006, 0.24, 0.3), "navy"); box("Pin.flag.top", (X1 - 0.087, PB + 0.12, 2.1), (0.008, 0.27, 0.03), "gold")
+box("Pin.note", (X1 - 0.086, PB - 0.08, 1.42), (0.006, 0.2, 0.3), "white")
+for i, (dy, z) in enumerate(((0.45, 2.0), (-0.3, 1.9), (0.42, 1.25), (0.42, 1.0), (-0.42, 1.5))):
+    pic(f"Pin.photo{i}", (X1 - 0.086, PB + dy, z), 0.22, 0.16, "art_photo", 90)
+place("Pin.outlet", OUTLET, X1 - 0.05, PB + 0.35, 90, z=0.35)
+place("D2.exit", EXIT_DOOR, X1 - 0.06, YM - 0.95, 90)
 wall("Win.N.meet", XT, Y1, XM, Y1, "window", (0, -1), bays=4); wall("Win.N", XM, Y1, XB - 0.55, Y1, "window", (0, -1), bays=2); wall("Pantry.N", XB - 0.55, Y1, X1, Y1)   # phòng họp dài đúng 3 ô cửa sổ (kể cả phần lõm sang dải hành lang)
 wall("Pantry.E", X1, YM, X1, Y1)
 
@@ -433,6 +690,7 @@ wall("Cor.S", 0, YA, X0, YA); wall("Cor.N", 0, Y1, XT, Y1)
 wall("Alcove.W", AX, 0, AX, YA); wall("Alcove.S", AX, 0, X0, 0, "window", (0, 1), bays=1, punched=True)   # hốc tây-nam cũng có 1 ô cửa sổ
 box("Alcove.grille", ((AX + X0) / 2 + 0.2, YA - 0.056, 2.6), (1.0, 0.012, 0.14), "grey")   # miệng gió trên mặt nam khối hành lang (thấy trong video)
 box("Alcove.cabinet", (AX + 0.3, YA / 2, 0.45), (0.5, YA - 0.5, 0.9), "wood")            # tủ gỗ thấp trong hốc
+box("Alcove.bag0", (AX + 0.3, 1.4, 1.04), (0.14, 0.4, 0.28), "black"); box("Alcove.bag1", (AX + 0.3, 2.0, 1.02), (0.13, 0.36, 0.24), "leather"); box("Alcove.printer", (AX + 0.3, 3.3, 0.97), (0.36, 0.42, 0.14), "dark")   # 2 cặp + máy in trên nóc tủ
 # cuối hành lang (theo hình vẽ + ảnh của chủ nhà): tường chắn ngang ở y=YM, ngay góc tây có 2 cửa gỗ sẫm —
 # cửa B trên tường tây ra thang thoát hiểm (qua buồng đệm rồi cửa C), cửa A trên tường chắn vào phòng kho.
 # Phía bắc tường chắn: phòng kho hẹp sát tường tây (x 0–CW), phần còn lại tới tường phòng họp là khối đặc.
@@ -555,7 +813,7 @@ part("Meet.lamp", "cyl", (XT + 0.38, 15.6, 0.83), (0.05, 0.05, 0.16), "yellow", 
 part("Pantry.pier", "tbox", (XB, Y1 - 0.15, H / 2), (1.1, 0.3, H), "wall", floor_root)              # trụ tường nhô ra, treo tranh
 box("Pantry.painting", (XB, Y1 - 0.31, 1.75), (0.62, 0.03, 0.97), "black")
 box("Pantry.painting.mat", (XB, Y1 - 0.327, 1.75), (0.54, 0.006, 0.89), "white")
-box("Pantry.painting.art", (XB, Y1 - 0.331, 1.75), (0.42, 0.006, 0.77), "yellow")
+pic("Pantry.painting.art", (XB, Y1 - 0.331, 1.75), 0.42, 0.77, "dongho", 180)
 place("Pantry.outlet", OUTLET, XB - 0.47, Y1 - 0.3, 180, z=0.4)                # ổ điện thấp trên trụ, cạnh đầu quầy
 for i in range(2): place(f"Kit.outlet{i}", OUTLET, X1 - 0.07, Y1 - 0.8 + i * 0.1, 90, z=1.05)   # ổ đôi trên ốp tường bếp
 place("Pantry.bar", BAR, XB, Y1 - 1.65)                                        # y 13.5–16.2
@@ -574,25 +832,51 @@ box("Kit.fridge", (X1 - 0.37, YM + 0.5, 0.875), (0.72, 0.7, 1.75), "black")
 box("Kit.fridge.split", (X1 - 0.733, YM + 0.5, 0.62), (0.006, 0.7, 0.015), "metal")
 box("Kit.fridge.water", (X1 - 0.733, YM + 0.45, 1.2), (0.006, 0.2, 0.3), "dark")
 box("Kit.fridge.box", (X1 - 0.35, YM + 0.5, 1.8), (0.4, 0.5, 0.1), "wood")
-box("Kit.dishwasher", (KX, YM + 1.2, 0.42), (0.6, 0.58, 0.84), "steel")
-box("Kit.dishwasher.panel", (KX - 0.302, YM + 1.2, 0.79), (0.006, 0.58, 0.08), "black")
+box("Kit.dishwasher", (KX, YM + 1.2, 0.43), (0.6, 0.58, 0.86), "black")
+box("Kit.dishwasher.front", (KX - 0.302, YM + 1.2, 0.4), (0.006, 0.54, 0.62), "white"); box("Kit.dishwasher.panel", (KX - 0.302, YM + 1.2, 0.79), (0.006, 0.58, 0.08), "dark")   # mặt trắng, dải điều khiển đen phía trên
 box("Kit.base", (KX + 0.02, (YM + 1.5 + Y1) / 2, 0.47), (0.6, Y1 - YM - 1.5, 0.78), "wood")
 box("Kit.toe", (KX + 0.05, (YM + 1.5 + Y1) / 2, 0.04), (0.5, Y1 - YM - 1.5, 0.08), "dark")
 for i, y in enumerate((YM + 2.05, YM + 2.6)):                                  # khe cánh tủ dưới bồn rửa
     box(f"Kit.seamV{i}", (KX - 0.282, y, 0.47), (0.006, 0.012, 0.78), "darkwood")
 for i, z in enumerate((0.34, 0.6)):                                            # khe 3 ngăn kéo
     box(f"Kit.seamH{i}", (KX - 0.282, (YM + 2.6 + Y1) / 2, z), (0.006, Y1 - YM - 2.6, 0.012), "darkwood")
-box("Kit.counter", (KX, (YM + 0.88 + Y1) / 2, 0.88), (0.64, Y1 - YM - 0.88, 0.04), "black")
-box("Kit.splash", (X1 - 0.06, (YM + 0.88 + Y1) / 2, 1.2), (0.02, Y1 - YM - 0.88, 0.6), "dark")
-box("Kit.sink", (KX - 0.03, YM + 2.15, 0.902), (0.4, 0.6, 0.008), "metal")
-part("Kit.faucet", "cyl", (X1 - 0.15, YM + 2.15, 1.1), (0.03, 0.03, 0.4), "metal", floor_root)
-box("Kit.faucet.arm", (X1 - 0.24, YM + 2.15, 1.3), (0.2, 0.03, 0.03), "metal")
-box("Kit.rack", (X1 - 0.19, YM + 2.1, 1.62), (0.26, 1.0, 0.3), "black")        # kệ đen úp bát trên bồn rửa
-box("Kit.rack.shelf", (X1 - 0.19, YM + 2.1, 1.38), (0.26, 1.0, 0.02), "black")
-box("Kit.shelf", (X1 - 0.15, Y1 - 0.6, 1.5), (0.18, 0.6, 0.02), "black")       # kệ ly phía bắc
-box("Kit.oven", (KX, YM + 1.25, 1.07), (0.42, 0.5, 0.34), "steel")
-box("Kit.oven.door", (KX - 0.213, YM + 1.25, 1.07), (0.006, 0.4, 0.24), "black")
-box("Kit.coffee", (KX + 0.08, Y1 - 0.45, 1.05), (0.25, 0.3, 0.3), "black")
+box("Kit.counter", (KX, (YM + 0.88 + Y1) / 2, 0.88), (0.64, Y1 - YM - 0.88, 0.04), "stone")
+box("Kit.splash", (X1 - 0.06, (YM + 0.88 + Y1) / 2, 1.2), (0.02, Y1 - YM - 0.88, 0.6), "stone")
+box("Kit.splash.N", (KX, Y1 - 0.06, 1.2), (0.64, 0.02, 0.6), "stone"); box("Kit.splash.S", (KX, YM + 0.9, 1.2), (0.64, 0.02, 0.6), "stone")   # tấm đá bẻ góc ở hai đầu bếp
+RY = YM + 2.15                                                                 # tim bồn rửa
+box("Kit.sink", (KX - 0.03, RY, 0.902), (0.4, 0.6, 0.008), "metal"); box("Kit.sink.basin", (KX - 0.03, RY, 0.905), (0.33, 0.52, 0.004), "grey")
+part("Kit.faucet", "cyl", (X1 - 0.16, RY, 1.07), (0.028, 0.028, 0.34), "metal", floor_root)   # vòi cổ ngỗng: thân đứng, đoạn vươn ra, đầu vòi chúc xuống
+box("Kit.faucet.arm", (X1 - 0.24, RY, 1.245), (0.19, 0.026, 0.026), "metal"); part("Kit.faucet.spout", "cyl", (X1 - 0.325, RY, 1.2), (0.034, 0.034, 0.1), "metal", floor_root)
+# kệ thép đen bắc ngang bồn rửa: 4 chân, ngăn trên có nắp kính, tầng úp bát + ly, thanh treo ống đũa
+for i, (dx, dy) in enumerate(((0.09, -0.48), (0.09, 0.48), (0.33, -0.48), (0.33, 0.48))): box(f"Kit.rack.post{i}", (X1 - dx, RY + dy, 1.36), (0.02, 0.02, 0.92), "black")
+box("Kit.rack.top", (X1 - 0.21, RY, 1.81), (0.28, 0.98, 0.015), "black"); box("Kit.rack.shelf", (X1 - 0.21, RY, 1.58), (0.28, 0.98, 0.015), "black")
+box("Kit.rack.back", (X1 - 0.075, RY, 1.7), (0.01, 0.98, 0.22), "black"); box("Kit.rack.flap", (X1 - 0.352, RY, 1.75), (0.006, 0.96, 0.1), "glass")
+for i, (dy, m, d, h) in enumerate(((-0.4, "glass", 0.07, 0.1), (-0.3, "metal", 0.07, 0.16), (-0.2, "black", 0.09, 0.08), (-0.1, "green", 0.08, 0.07), (0.0, "purple", 0.07, 0.13))):
+    part(f"Kit.rack.cup{i}", "cyl", (X1 - 0.2, RY + dy, 1.5875 + h / 2), (d, d, h), m, floor_root)
+for i in range(5): part(f"Kit.rack.bowl{i}", "ball", (X1 - 0.2, RY + 0.14 + 0.07 * i, 1.67), (0.16, 0.07, 0.16), "white", floor_root).rotation_euler.x = math.radians(20)
+box("Kit.rack.rail", (X1 - 0.09, RY, 1.2), (0.015, 0.96, 0.015), "black")
+for i in range(2): box(f"Kit.rack.holder{i}", (X1 - 0.12, RY - 0.33 + i * 0.13, 1.12), (0.06, 0.09, 0.14), "black")
+for i, m in enumerate(("green", "white")): part(f"Kit.soap{i}", "cyl", (X1 - 0.13, RY + 0.3 + i * 0.08, 0.99), (0.06, 0.06, 0.18), m, floor_root)
+part("Kit.cloth0", "rbox", (KX - 0.12, RY + 0.5, 0.915), (0.2, 0.16, 0.03), "purple", floor_root); part("Kit.cloth1", "rbox", (KX - 0.1, RY + 0.66, 0.915), (0.16, 0.14, 0.03), "pink", floor_root)
+# lò hấp nướng trắng trên mặt bếp (phía trên máy rửa bát): cửa kính đen, núm xoay vàng đồng
+part("Kit.oven", "rslab", (KX + 0.04, YM + 1.25, 1.065), (0.42, 0.46, 0.32, 0.03), "white", floor_root)
+box("Kit.oven.door", (KX - 0.172, YM + 1.22, 1.04), (0.006, 0.36, 0.22), "scr_off")
+part("Kit.oven.knob", "cyl", (KX - 0.175, YM + 1.42, 1.185), (0.045, 0.045, 0.02), "gold", floor_root).rotation_euler.y = math.radians(90)
+part("Kit.carafe", "cyl", (KX - 0.15, YM + 1.62, 0.955), (0.1, 0.1, 0.11), "glass", floor_root)
+# góc pha cà phê đầu bắc: kệ để túi cà phê, máy xay, cân, ấm cổ ngỗng xanh navy tay gỗ, túi giấy đỏ
+box("Kit.shelf", (X1 - 0.15, Y1 - 0.42, 1.515), (0.16, 0.62, 0.012), "stone")
+for i in range(5): box(f"Kit.bag{i}", (X1 - 0.15, Y1 - 0.62 + 0.1 * i, 1.6), (0.05, 0.065, 0.16), "bag")
+box("Kit.filter", (X1 - 0.15, Y1 - 0.17, 1.6), (0.06, 0.07, 0.17), "darkwood")
+box("Kit.grinder.base", (KX + 0.1, Y1 - 0.25, 0.91), (0.1, 0.2, 0.02), "black"); box("Kit.grinder.col", (KX + 0.14, Y1 - 0.25, 1.02), (0.07, 0.08, 0.2), "black")
+part("Kit.grinder.body", "cyl", (KX + 0.07, Y1 - 0.25, 1.1), (0.11, 0.11, 0.17), "black", floor_root).rotation_euler.y = math.radians(90)
+part("Kit.grinder.cup", "cyl", (KX + 0.0, Y1 - 0.25, 0.95), (0.07, 0.07, 0.08), "black", floor_root)
+box("Kit.scale", (KX - 0.1, Y1 - 0.5, 0.913), (0.14, 0.16, 0.025), "black")
+KY = Y1 - 0.95                                                                 # ấm đun
+box("Kit.kettle.base", (KX + 0.05, KY, 0.91), (0.16, 0.2, 0.02), "navy"); part("Kit.kettle", "cyl", (KX + 0.05, KY, 0.99), (0.13, 0.13, 0.14), "navy", floor_root)
+part("Kit.kettle.lid", "cyl", (KX + 0.05, KY, 1.068), (0.1, 0.1, 0.016), "navy", floor_root); part("Kit.kettle.knob", "cyl", (KX + 0.05, KY, 1.09), (0.025, 0.025, 0.03), "wood", floor_root)
+box("Kit.kettle.handle", (KX + 0.05, KY - 0.115, 1.03), (0.03, 0.1, 0.03), "wood").rotation_euler.x = math.radians(-25)
+box("Kit.kettle.spout", (KX + 0.05, KY + 0.11, 1.0), (0.012, 0.15, 0.012), "navy").rotation_euler.x = math.radians(40)
+box("Kit.redbag", (KX + 0.05, Y1 - 1.4, 1.03), (0.12, 0.3, 0.26), "red"); box("Kit.redbag.handle", (KX + 0.05, Y1 - 1.4, 1.2), (0.01, 0.16, 0.08), "cream")
 # bàn ăn dài bắc–nam phía tây quầy bar: 4 ghế mỗi bên — phía tây 4 ghế vỏ trắng, phía đông 3 ghế trắng + ghế gỗ đệm xanh ở đầu bắc
 TX = XB - 2.35
 place("Pantry.table", DINING_TABLE, TX, 14.4)
@@ -604,14 +888,22 @@ for i in range(4):
 # khu làm việc (x X0–X1, y 0–12) — theo bản vẽ layout của chủ nhà: 7 bàn 4 chỗ
 # shortcut: bản vẽ không ghi kích thước nên vị trí lấy theo tỉ lệ hình, bàn giả định 2.36 × 1.2 m
 for i in range(3): work_table(f"Desk.S{i}", X1 - 0.75 - TL * (i + 0.5), 2.2)            # hàng nam: 3 bàn nối liền
-for i in range(2): work_table(f"Desk.M{i}", X1 - 2.05 - TL * (i + 0.5), 5.2)            # hàng giữa: 2 bàn nối liền, đầu đông có tủ gỗ
-work_table("Desk.N", X1 - 4.3, 8.3)
-box("Desk.pc", (X1 - 2.05 - TL * 1.5 - 0.95, 5.2, 1.0), (0.24, 0.48, 0.5), "white"); box("Desk.pc.glass", (X1 - 2.05 - TL * 1.5 - 0.95, 5.2 - 0.242, 1.0), (0.2, 0.004, 0.44), "scr_hi")   # thùng máy trắng mặt kính đặt trên bàn (thấy trong video)                                                      # hàng bắc: 1 bàn riêng, phía đông là kệ sách
-work_table("Desk.W", X0 + 0.35, 2.05, 90)                                                # bàn xoay dọc ở góc tây-nam, cạnh hốc tủ gỗ
-place("Bookshelf", BOOKSHELF, X1 - 1.75, YM - 3.3, 90)                # cột xanh bọc kệ gỗ, sát tường đông, ngay nam bảng ghim; cạnh nó là ô cửa sổ có chậu cây
-part("Plant.pot", "cyl", (X1 - 0.4, YM - 5.0, 0.2), (0.3, 0.3, 0.4), "white", floor_root)
-for i, (dx, dy, z) in enumerate(((0, 0, 0.75), (0.12, 0.1, 1.0), (-0.1, 0.12, 1.2), (0.05, -0.12, 1.35))):
-    part(f"Plant.leaf{i}", "rbox", (X1 - 0.4 + dx, YM - 5.0 + dy, z), (0.3, 0.3, 0.3), "c_green" if "c_green" in M else "green", floor_root)
+work_table("Desk.M0", X1 - 2.05 - TL * 0.5, 5.2)                                         # hàng giữa: 2 bàn nối liền, đầu đông có tủ gỗ
+# bàn giữa phía tây (theo ảnh): chỗ đầu tây cạnh bắc là thùng máy trắng RGB + 2 màn trắng + ghế trắng, kế bên là màn cong đang mở code
+work_table("Desk.M1", X1 - 2.05 - TL * 1.5, 5.2, kinds="AaPC", chairs={2: WORK_CHAIR_W})
+place("Desk.projector", PROJECTOR, X1 - 2.05 - TL * 2 - 0.35, 5.75, -100)                # máy chiếu trên chân đứng cạnh đầu bàn có thùng máy
+work_table("Desk.N", X1 - 4.3, 8.3)                                                      # hàng bắc: 1 bàn riêng, phía đông là kệ sách
+# bàn xoay dọc ở góc tây-nam, cạnh hốc tủ gỗ. Bàn 3 màn hình của chủ nhà: chỗ số 2 (cạnh tây, đầu nam — ngồi nhìn về đông, đầu bàn bên tay phải);
+# shortcut: vị trí này suy ra từ góc chụp ảnh, nếu sai chỉ cần đổi chữ "U" sang chỗ khác trong kinds (và số chỗ trong chairs)
+work_table("Desk.W", X0 + 0.35, 2.05, 90, kinds="AaUM", chairs={2: USER_CHAIR})
+place("Bookshelf", bookshelf_parts(), X1 - 1.75, YM - 3.3)             # cột kệ sách gần tường đông, ngay nam bảng ghim
+place("Plant", PLANT, X1 - 0.5, YM - 4.8); place("Guitar", GUITAR, X1 - 0.35, YM - 4.15, 90); place("CeramicStool", CERAMIC_STOOL, X1 - 0.4, YM - 3.65)   # dọc cửa sổ đông: đôn sứ, đàn, chậu cây
+def ceiling_fan(name, x, y):
+    part(name + ".rod", "cyl", (x, y, HC - 0.14), (0.03, 0.03, 0.28), "white", floor_root); part(name + ".hub", "cyl", (x, y, HC - 0.31), (0.2, 0.2, 0.08), "white", floor_root)
+    for i in range(3):
+        a = math.radians(i * 120 + 20)
+        box(f"{name}.blade{i}", (x + 0.4 * math.cos(a), y + 0.4 * math.sin(a), HC - 0.31), (0.62, 0.13, 0.012), "wood").rotation_euler.z = a
+ceiling_fan("Fan0", X0 + 5.5, 3.5); ceiling_fan("Fan1", X1 - 3.4, 7.3)                   # quạt trần 3 cánh thấy trong ảnh
 box("Cabinet.E", (X1 - 0.3, 1.85, 0.55), (0.45, 3.6, 1.1), "wood")     # tủ gỗ dài dọc tường đông, đoạn phía nam
 box("Cabinet.E2", (X1 - 1.8, 5.3, 0.55), (0.45, 2.2, 1.1), "wood")    # tủ gỗ ngắn ở đầu đông hàng bàn giữa
 for i, y in enumerate((1.0, 2.8)): box(f"Cabinet.E.speaker{i}", (X1 - 0.3, y, 1.2), (0.14, 0.14, 0.2), "dark")
