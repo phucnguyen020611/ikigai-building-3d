@@ -825,7 +825,12 @@ place("Pantry.bin", [("box", (0, 0, 0.025), (0.5, 0.32, 0.05), "black"), ("box",
                      ("box", (0, 0, 0.627), (0.495, 0.315, 0.022), "blue"), ("box", (0, 0, 0.657), (0.5, 0.32, 0.04), "black"),
                      ("box", (0.1, 0.158, 0.585), (0.13, 0.01, 0.07), "blue", (6, 0, 0)), ("box", (-0.15, 0.158, 0.595), (0.09, 0.01, 0.05), "blue", (6, 0, 0)),
                      ("box", (0, 0.195, 0.022), (0.1, 0.09, 0.014), "black", (12, 0, 0))], XB + 0.83, Y1 - 0.23, 180)
-part("Pantry.speaker", "cyl", (XB - 0.22, Y1 - 0.45, 1.13), (0.12, 0.12, 0.16), "black", floor_root)
+# máy chiếu mini hình trụ đen trên quầy bar, cạnh bình hoa: ống kính (+y cục bộ) chĩa về màn chiếu cuốn treo trên vách kính pantry | phòng họp;
+# hộp màn chiếu gắn sát trần dọc vách kính đó. Tấm màn + video do viewer dựng (xem DEVICES trong index.html) — đổi vị trí ở đây thì sửa cả bên đó.
+place("Pantry.projector", [("cyl", (0, 0, 0.08), (0.12, 0.12, 0.16), "black"), ("cyl", (0, 0.058, 0.1), (0.055, 0.055, 0.012), "scr_off", (90, 0, 0)),
+                           ("cyl", (0, 0, 0.162), (0.09, 0.09, 0.006), "gunmetal")], XB - 0.22, Y1 - 0.45, 118, z=1.05)
+box("Pantry.screen.case", (XM + 0.07, (YM + Y1) / 2, 2.72), (0.09, 4.3, 0.09), "white")
+for i, sy in enumerate((-1, 1)): box(f"Pantry.screen.cap{i}", (XM + 0.07, (YM + Y1) / 2 + sy * 2.16, 2.72), (0.1, 0.03, 0.1), "dark")
 # bếp tường đông, từ nam lên bắc: tủ lạnh | máy rửa bát | tủ 2 cánh dưới bồn rửa | tủ ngăn kéo
 KX = X1 - 0.32                                                                 # tim khối bếp (sâu 0.64)
 box("Kit.fridge", (X1 - 0.37, YM + 0.5, 0.875), (0.72, 0.7, 1.75), "black")
