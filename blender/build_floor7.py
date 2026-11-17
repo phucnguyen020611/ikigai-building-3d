@@ -891,7 +891,7 @@ for i in range(3): work_table(f"Desk.S{i}", X1 - 0.75 - TL * (i + 0.5), 2.2)    
 work_table("Desk.M0", X1 - 2.05 - TL * 0.5, 5.2)                                         # hàng giữa: 2 bàn nối liền, đầu đông có tủ gỗ
 # bàn giữa phía tây (theo ảnh): chỗ đầu tây cạnh bắc là thùng máy trắng RGB + 2 màn trắng + ghế trắng, kế bên là màn cong đang mở code
 work_table("Desk.M1", X1 - 2.05 - TL * 1.5, 5.2, kinds="AaPC", chairs={2: WORK_CHAIR_W})
-place("Desk.projector", PROJECTOR, X1 - 2.05 - TL * 2 - 0.35, 5.75, -100)                # máy chiếu trên chân đứng cạnh đầu bàn có thùng máy
+place("Desk.projector", PROJECTOR, X1 - 2.05 - TL * 2 - 0.35, 5.7, 90)                   # máy chiếu trên chân đứng cạnh đầu bàn có thùng máy, ống kính chĩa về tường hành lang (x=X0, y 4.6–6.8) — màn chiếu video của viewer nằm ở đó, xem SCREEN trong index.html
 work_table("Desk.N", X1 - 4.3, 8.3)                                                      # hàng bắc: 1 bàn riêng, phía đông là kệ sách
 # bàn xoay dọc ở góc tây-nam, cạnh hốc tủ gỗ. Bàn 3 màn hình của chủ nhà: chỗ số 2 (cạnh tây, đầu nam — ngồi nhìn về đông, đầu bàn bên tay phải);
 # shortcut: vị trí này suy ra từ góc chụp ảnh, nếu sai chỉ cần đổi chữ "U" sang chỗ khác trong kinds (và số chỗ trong chairs)
